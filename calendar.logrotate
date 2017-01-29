@@ -1,0 +1,10 @@
+/var/log/calendar.log
+{
+        rotate 60
+        daily
+        missingok
+        notifempty
+        delaycompress
+        compress
+        endscript
+}
