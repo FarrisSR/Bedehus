@@ -20,4 +20,5 @@
 # For more information see the manual pages of crontab(5) and cron(8)
 # 
 # m h  dom mon dow   command
- */30    *       *       *       * /home/pi/code/bedehus/main_notemp.py
+ */15    *       *       *       * flock -n /var/run/fcrj.lockfile timeout --preserve-status -s9 150 /home/pi/code/bedehus/main_notemp.py >> /dev/null 2>&1
+ */5    *       *       *       * flock -n /var/run/fcj.lockfile timeout --preserve-status -s9 150 /usr/local/bin/checkwifi.sh >> /dev/null 2>&1
