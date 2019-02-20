@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 import logging
+import time, os, urllib, urllib2
 import requests
 from datetime import datetime, date, time, timedelta
 import pytz
 from CalendarClient import CalendarClient
+from ThingSpeakClient import ThingSpeakClient
 from grove_relay import GroveRelayClient
 import urllib3
 urllib3.disable_warnings()
@@ -19,6 +21,11 @@ maxtemp = 22
 
 utleie = 0
 
+BASE_URL = 'https://api.thingspeak.com/update.json'
+TSCKEY = '72LT0GVTHPYRSEA7'
+
+
+tsc = ThingSpeakClient(BASE_URL,TSCKEY)
 poweron=GroveRelayClient
 
 ## Logging:
@@ -92,9 +99,11 @@ else:
 if utleie:
     logger.debug("Conclusion: Power should be on - Utleie ")
     poweron.shouldpowerbeon(relay)
+    tsc.send_data(utleie)
 else:
     #poweron.shouldpowerbeon(relay)
     #logger.debug("Conclusion: Power should be on - Forced utleie")
     poweron.shouldpowerbeoff(relay)
     logger.debug("Conclusion: Power should be off - Ingenleie")
+    tsc.send_data(utleie)
 
