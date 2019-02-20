@@ -33,7 +33,7 @@ class CalendarClient:
         self.url = url
         self.logger = logging.getLogger('calendarClient')
         self.logger.setLevel(logging.DEBUG)
-        self.debug = 1
+        self.debug = 0
 
 
     def fetchCalendar(self):
@@ -71,9 +71,9 @@ class CalendarClient:
                     self.logger.info("Vi er under to timer etter møteslutt: " + str(diff))
                 return True
             else:
-            	if self.debug:
-               	    self.logger.debug("Vi er etter møteslutt: ")
-            	return False
+                if self.debug:
+                    self.logger.debug("Vi er etter møteslutt: ")
+                return False
 
 
         if start > time:
