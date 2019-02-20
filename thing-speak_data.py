@@ -5,7 +5,7 @@ import time, os, urllib, urllib2
 PERIOD = 60 # Seconds
 
 BASE_URL = 'https://api.thingspeak.com/update.json'
-KEY = '72LT0GVTHPYRSEA7'
+KEY = 'PR377EQ9CB1QO3YY'
 
 def send_data(temp):
     data = urllib.urlencode({'api_key' : KEY, 'field1': temp})
