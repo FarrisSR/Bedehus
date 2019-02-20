@@ -14,7 +14,7 @@ class ThingSpeakClient:
 
 
 
-def send_data(self,temp):
-    data = urllib.urlencode({'api_key' : KEY, 'field1': temp})
-    response = urllib2.urlopen(url=BASE_URL, data=data)
-    #print(response.read())
+    def send_data(self,temp):
+        data = urllib.urlencode({'api_key' : KEY, 'field1': temp})
+        response = urllib2.urlopen(url=BASE_URL, data=data)
+        #print(response.read())
