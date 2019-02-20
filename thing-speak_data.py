@@ -2,7 +2,7 @@
 
 import time, os, urllib, urllib2
 
-PERIOD = 60 # Seconds
+#PERIOD = 60 # Seconds
 
 BASE_URL = 'https://api.thingspeak.com/update.json'
 KEY = 'PR377EQ9CB1QO3YY'
@@ -17,4 +17,6 @@ def cpu_temp():
     cpu_temp = dev.read()[5:-3]
     return cpu_temp
 
-send_data(cpu_temp)
+temp = cpu_temp()
+print("CPU Temp (C): " + str(temp))
+send_data(temp)
