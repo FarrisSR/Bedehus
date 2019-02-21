@@ -68,13 +68,12 @@ class CalendarClient:
         if end < time:
             if end > after_two:
                 if self.debug:
-                    self.logger.info("Vi er under to timer etter møteslutt: " + str(diff))
+                    self.logger.info("Vi er under to timer etter møteslutt: ")
                 return True
             else:
                 if self.debug:
                     self.logger.debug("Vi er etter møteslutt: ")
                 return False
-
 
         if start > time:
             diff = start - time
@@ -107,11 +106,3 @@ class CalendarClient:
             if shouldPowerBeOn == True:
                 return True
         return False
-
-#logging.basicConfig(filename='calendarClient.log', level=logging.DEBUG)
-#console = logging.StreamHandler()
-#console.setLevel(logging.DEBUG)
-#logging.getLogger('').addHandler(console)
-#client = CalendarClient('http://www.google.com/calendar/ical/fchppllvcaupb6fgguigobkfj4@group.calendar.google.com/public/basic.ics')
-#client.fetchCalendar()
-
