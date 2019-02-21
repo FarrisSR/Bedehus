@@ -70,19 +70,15 @@ shouldPowerBeOffinFuture = True  # Will try to prove this to be false by looking
 #now = datetime.now() + timedelta(hours=-2)
 now = datetime.now()
 realnow = datetime.now() 
-intwo = now + timedelta(hours=+2)
-aftertwo = now - timedelta(hours=2)
+intwo = now - timedelta(hours=2)
+aftertwo = now + timedelta(hours=2)
 now = pytz.utc.localize(now)
 intwo = pytz.utc.localize(intwo)
 aftertwo = pytz.utc.localize(aftertwo)
 logger.debug("Time NOW: " +str(now) + "Time in TWO: " + str(intwo))
 logger.debug("Time REAL-NOW: " +str(realnow))
-### START
-# d = date(2015,5,10)
-# t = time(16,30, 0, 0)
-# now = datetime.combine(d, t)
-# now = pytz.utc.localize(now)
-### ^^ END
+
+
 #for calendarUrl in calendarUrls:
 calendarClient = CalendarClient(storsalurl)
 if calendarClient.shouldPowerBeOn(now,intwo,aftertwo):
