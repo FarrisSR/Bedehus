@@ -33,7 +33,7 @@ class CalendarClient:
         self.url = url
         self.logger = logging.getLogger('calendarClient')
         self.logger.setLevel(logging.DEBUG)
-        self.debug = 0
+        self.debug = 1
 
 
     def fetchCalendar(self):
