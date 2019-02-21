@@ -9,8 +9,8 @@ now = datetime.now()
 
 print("Time now is: " + str(now))
 
-realnow = datetime.now()
-print("RealTime now is: " + str(now))
+# realnow = datetime.now()
+# print("RealTime now is: " + str(now))
 
 intwo = now - timedelta(hours=2)
 print("in two Time now is: " + str(intwo))
@@ -18,11 +18,11 @@ print("in two Time now is: " + str(intwo))
 aftertwo = now + timedelta(hours=2)
 print("after two Time now is: " + str(aftertwo))
 
-now = pytz.utc.localize(now)
-print("Pytz Time now is: " + str(now))
-
-intwo = pytz.utc.localize(intwo)
-print("Pytz in two Time now is: " + str(intwo))
-
-aftertwo = pytz.utc.localize(aftertwo)
-print("Pytz after two Time now is: " + str(aftertwo))
+# now = pytz.utc.localize(now)
+# print("Pytz Time now is: " + str(now))
+#
+# intwo = pytz.utc.localize(intwo)
+# print("Pytz in two Time now is: " + str(intwo))
+#
+# aftertwo = pytz.utc.localize(aftertwo)
+# print("Pytz after two Time now is: " + str(aftertwo))
