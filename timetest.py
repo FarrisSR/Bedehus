@@ -19,7 +19,7 @@ aftertwo = now + timedelta(hours=2)
 print("after two Time now is: " + str(aftertwo))
 
 now = pytz.utc.localize(now)
-print("Pytz Time now is: " + str(intwo))
+print("Pytz Time now is: " + str(now))
 
 intwo = pytz.utc.localize(intwo)
 print("Pytz in two Time now is: " + str(intwo))
