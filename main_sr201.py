@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 import logging
-import time, os, urllib, urllib2
-import requests
+#import time, os, urllib, urllib2
+#import requests
 from datetime import datetime, date, time, timedelta
 import pytz
 from CalendarClient import CalendarClient
 from ThingSpeakClient import ThingSpeakClient
-from grove_relay import GroveRelayClient
+from sr201class import Sr201
 import urllib3
 urllib3.disable_warnings()
 
@@ -26,14 +26,14 @@ TSCKEY = '72LT0GVTHPYRSEA7'
 
 
 tsc = ThingSpeakClient(BASE_URL,TSCKEY)
-poweron=GroveRelayClient
+sr201 = Sr201('192.168.1.100')
 
 ## Logging:
 # set up logging to file - see previous section for more details
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
                     datefmt='%m-%d %H:%M',
-                    filename='/var/log/heatcalaneder.log',
+                    filename='heatcalaneder.log',
                     filemode='a')
 # define a Handler which writes INFO messages or higher to the sys.stderr
 console = logging.StreamHandler()
@@ -94,12 +94,15 @@ else:
 
 if utleie:
     logger.debug("Conclusion: Power should be on - Utleie ")
-    poweron.shouldpowerbeon(relay)
-    tsc.send_data(utleie)
+    sr201.do_close('close:1')
+    sr_201.close()
+    #tsc.send_data(utleie)
 else:
     #poweron.shouldpowerbeon(relay)
     #logger.debug("Conclusion: Power should be on - Forced utleie")
-    poweron.shouldpowerbeoff(relay)
+    #sr201.do_close('close:1')
+    sr201.do_open('open:1')
+    sr201.close()
     logger.debug("Conclusion: Power should be off - Ingenleie")
-    tsc.send_data(utleie)
+    #tsc.send_data(utleie)
 

@@ -1,8 +1,8 @@
 # -*- coding: UTF-8 -*-
 import logging
 import requests
-import requests_cache
-from datetime import datetime, date, time, timedelta
+#import requests_cache
+#from datetime import datetime, date, time, timedelta
 import urllib3
 urllib3.disable_warnings()
 from icalendar import Calendar
@@ -14,7 +14,7 @@ __author__ = 'Cato'
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
                     datefmt='%m-%d %H:%M',
-                    filename='/var/log/calendar.log',
+                    filename='calendar.log',
                     filemode='a')
 # define a Handler which writes INFO messages or higher to the sys.stderr
 logger = logging.StreamHandler()
@@ -38,7 +38,7 @@ class CalendarClient:
 
     def fetchCalendar(self):
         self.logger.info("Will fetch calendar")
-        requests_cache.install_cache('bedehus_cache', backend='sqlite', expire_after=7200)
+        #requests_cache.install_cache('bedehus_cache', backend='sqlite', expire_after=7200)
         icalText = requests.get(self.url,verify=False).text
         return Calendar.from_ical(icalText)
 

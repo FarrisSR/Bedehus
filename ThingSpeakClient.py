@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import time, os, urllib, urllib2
+import time, os, urllib, urllib3
 
 __author__ = 'Runo'
 
