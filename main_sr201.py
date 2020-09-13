@@ -26,7 +26,7 @@ TSCKEY = '72LT0GVTHPYRSEA7'
 
 
 tsc = ThingSpeakClient(BASE_URL,TSCKEY)
-sr201 = Sr201('192.168.1.100')
+sr201 = Sr201('192.168.100.100')
 
 ## Logging:
 # set up logging to file - see previous section for more details
