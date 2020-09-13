@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 import logging
 import requests
-#import requests_cache
+import requests_cache
 #from datetime import datetime, date, time, timedelta
 import urllib3
 urllib3.disable_warnings()
