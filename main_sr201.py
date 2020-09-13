@@ -26,7 +26,7 @@ TSCKEY = '72LT0GVTHPYRSEA7'
 
 
 tsc = ThingSpeakClient(BASE_URL,TSCKEY)
-sr201 = Sr201('192.168.100.100')
+
 
 ## Logging:
 # set up logging to file - see previous section for more details
@@ -93,11 +93,13 @@ else:
     utleie = 1
 
 if utleie:
+    sr201 = Sr201('192.168.1.100')
     logger.debug("Conclusion: Power should be on - Utleie ")
     sr201.do_close('close:1')
     sr_201.close()
     #tsc.send_data(utleie)
 else:
+    sr201 = Sr201('192.168.100.100')
     #poweron.shouldpowerbeon(relay)
     #logger.debug("Conclusion: Power should be on - Forced utleie")
     #sr201.do_close('close:1')
