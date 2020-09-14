@@ -3,3 +3,4 @@
 *.pyc
 bedehus_cache.sqlite
 calendar.log
+.idea
