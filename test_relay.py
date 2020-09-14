@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-#-*- coding: UTF-8 -*-
+# -*- coding: UTF-8 -*-
 import logging
-import requests
-from datetime import datetime, date, time, timedelta
-#import pytz
-from CalendarClient import CalendarClient
-from grove_relay import GroveRelayClient
+
 import urllib3
+
+from grove_relay import GroveRelayClient
+
 urllib3.disable_warnings()
 
 __author__ = 'Cato'
@@ -19,7 +18,7 @@ maxtemp = 22
 
 utleie = 0
 
-poweron=GroveRelayClient
+poweron = GroveRelayClient
 
 ## Logging:
 # set up logging to file - see previous section for more details
@@ -43,10 +42,9 @@ logger.setLevel(logging.DEBUG)
 
 logger.debug("DEBUG - Starting")
 
-#logger.debug("DEBUG - Conclusion: Power should be on - Utleie ")
-#poweron.shouldpowerbeon(relay)
+# logger.debug("DEBUG - Conclusion: Power should be on - Utleie ")
+# poweron.shouldpowerbeon(relay)
 
 poweron.shouldpowerbeoff(relay)
 logger.debug("DEBUG - Conclusion: Power should be off - Ingenleie")
 logger.debug("DEBUG - Ending")
-
