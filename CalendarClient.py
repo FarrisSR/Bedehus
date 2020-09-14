@@ -105,8 +105,9 @@ class CalendarClient:
                     if self.debug:
                         self.logger.debug('Vi er også etter møteslutt med ' + str(diff))
                     return False  # Todo - not hardocde
-            else:
-                return False
+
+        else:
+            return False
 
     def shouldPowerBeOn(self, time, in_two,after_two):
         icalCalendar = self.fetchCalendar()
