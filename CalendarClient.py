@@ -1,8 +1,8 @@
 # -*- coding: UTF-8 -*-
 import logging
 import requests
+from datetime import datetime, date, time, timedelta
 import requests_cache
-#from datetime import datetime, date, time, timedelta
 import urllib3
 urllib3.disable_warnings()
 from icalendar import Calendar
@@ -33,7 +33,7 @@ class CalendarClient:
         self.url = url
         self.logger = logging.getLogger('calendarClient')
         self.logger.setLevel(logging.DEBUG)
-        self.debug = 1
+        self.debug = 0
 
 
     def fetchCalendar(self):
@@ -48,6 +48,11 @@ class CalendarClient:
         end = event['DTEND'].dt
         summary = event['SUMMARY'].encode('utf-8')
 
+        if start - timedelta(days=7) <= in_two <= start + timedelta(days=7):
+            self.debug = 1
+        else:
+            self.debug = 0
+
         """
             Start: 2015-06-14 14:30:00+00:00 End: 2015-06-14 17:00:00+00:00
             time: 2015-05-10 16:30:00+00:00
@@ -55,8 +60,8 @@ class CalendarClient:
         if self.debug:
             self.logger.debug("###################################################") 
             self.logger.debug("Event:        " + str(summary) + " Start:" + str(start) + "Til --> " + str(end)) 
-            self.logger.debug("Sjekker tiden NOW " + str(time) + " mot møtet med starttid:")
-            self.logger.debug("Sjekker tiden INTWO " + str(in_two) + " mot møtet med starttid:")
+            self.logger.debug("Sjekker tiden NOW " + str(time) + " mot møtet med starttid:" + str(start))
+            self.logger.debug("Sjekker tiden INTWO " + str(in_two) + " mot møtet med starttid:" + str(start))
             self.logger.debug("              " + str(start) + " --> " + str(end))
             self.logger.debug("###################################################") 
 

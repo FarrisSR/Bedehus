@@ -67,7 +67,7 @@ storsalurl = 'https://calendar.google.com/calendar/ical/84ansm753q4ru2mjc9952nel
 shouldPowerBeOff = True  # Will try to prove this to be false by looking at the configured calendars
 shouldPowerBeOffinFuture = True  # Will try to prove this to be false by looking at the configured calendars
 
-#now = datetime.now() + timedelta(hours=-2)
+
 now = datetime.now()
 realnow = datetime.now() 
 intwo = now - timedelta(hours=2)
@@ -83,8 +83,6 @@ logger.debug("Time REAL-NOW: " +str(realnow))
 calendarClient = CalendarClient(storsalurl)
 if calendarClient.shouldPowerBeOn(now,intwo,aftertwo):
     shouldPowerBeOff = False
-#if calendarClient.shouldPowerBeOn(intwo):
-#    shouldPowerBeOffinFuture = False
 
 if shouldPowerBeOff:
     logger.debug("Conclusion: Power should be off" + str(shouldPowerBeOff))
@@ -92,17 +90,16 @@ else:
     logger.debug("Conclusion: Power should be on" + str(shouldPowerBeOff))
     utleie = 1
 
+sr201 = Sr201('192.168.100.100')
+
 if utleie:
-    sr201 = Sr201('192.168.1.100')
+
     logger.debug("Conclusion: Power should be on - Utleie ")
     sr201.do_close('close:1')
     sr_201.close()
     #tsc.send_data(utleie)
 else:
-    sr201 = Sr201('192.168.100.100')
-    #poweron.shouldpowerbeon(relay)
     #logger.debug("Conclusion: Power should be on - Forced utleie")
-    #sr201.do_close('close:1')
     sr201.do_open('open:1')
     sr201.close()
     logger.debug("Conclusion: Power should be off - Ingenleie")
