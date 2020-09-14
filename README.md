@@ -10,6 +10,12 @@ For this project I have a Raspberry Pi (Running Rasbian) with the GrovePI HAT an
 
 https://www.raspberrypi.org/
 
+Let's see if the SR-201 can do the job better!!
+http://www.uddating.se/2017/05/13/sr-201-network-relay/
+https://github.com/berkinet/sr-201-relay/blob/master/sr-201-relay.py
+
+
+The GRove is out!
 https://www.dexterindustries.com/GrovePi/get-started-with-the-grovepi/
 
 
