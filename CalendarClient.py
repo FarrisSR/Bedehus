@@ -34,6 +34,7 @@ class CalendarClient:
         self.logger = logging.getLogger('calendarClient')
         self.logger.setLevel(logging.DEBUG)
         self.debug = 0
+        self.check = 0
 
 
     def fetchCalendar(self):
@@ -50,8 +51,10 @@ class CalendarClient:
 
         if start - timedelta(days=7) <= in_two <= start + timedelta(days=7):
             self.debug = 1
+            self.check = 1
         else:
             self.debug = 0
+            self.check = 0
 
         """
             Start: 2015-06-14 14:30:00+00:00 End: 2015-06-14 17:00:00+00:00
@@ -69,39 +72,41 @@ class CalendarClient:
         # Is it in the near future?
         # Is it in the past?
         # But still not finished?
+        if self.check:
+            if end < time:
+                if end > after_two:
+                    if self.debug:
+                        self.logger.info("Vi er under to timer etter møteslutt: ")
+                    return True
+                else:
+                    if self.debug:
+                        self.logger.debug("Vi er etter møteslutt: ")
+                    return False
 
-        if end < time:
-            if end > after_two:
+            if start > time:
+                diff = start - time
                 if self.debug:
-                    self.logger.info("Vi er under to timer etter møteslutt: ")
-                return True
+                    self.logger.debug("Vi er før møtestart: " + str(diff))
+                if start <= in_two:
+                    if self.debug:
+                        self.logger.debug("Vi er under to timer til møtestart: " + str(diff))
+                    return True
+
+            if start <= time:
+                if self.debug:
+                    self.logger.debug('Vi er etter møtestart')
+                diff = time - start
+                if end > time:
+                    if self.debug:
+                        self.logger.debug('Men er før møteslutt, noe som betyr: --> Møtet pågår!! : ' + str(summary))
+                    # Keep the power on
+                    return True
+                else:
+                    if self.debug:
+                        self.logger.debug('Vi er også etter møteslutt med ' + str(diff))
+                    return False  # Todo - not hardocde
             else:
-                if self.debug:
-                    self.logger.debug("Vi er etter møteslutt: ")
                 return False
-
-        if start > time:
-            diff = start - time
-            if self.debug:
-                self.logger.debug("Vi er før møtestart: " + str(diff))
-            if start <= in_two:
-                if self.debug:
-                    self.logger.debug("Vi er under to timer til møtestart: " + str(diff))
-                return True
-
-        if start <= time:
-            if self.debug:
-                self.logger.debug('Vi er etter møtestart')
-            diff = time - start
-            if end > time:
-                if self.debug:
-                    self.logger.debug('Men er før møteslutt, noe som betyr: --> Møtet pågår!! : ' + str(summary))
-                # Keep the power on
-                return True
-            else:
-                if self.debug:
-                    self.logger.debug('Vi er også etter møteslutt med ' + str(diff))
-                return False  # Todo - not hardocde
 
     def shouldPowerBeOn(self, time, in_two,after_two):
         icalCalendar = self.fetchCalendar()
