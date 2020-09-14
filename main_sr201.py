@@ -67,7 +67,7 @@ storsalurl = 'https://calendar.google.com/calendar/ical/84ansm753q4ru2mjc9952nel
 shouldPowerBeOff = True  # Will try to prove this to be false by looking at the configured calendars
 shouldPowerBeOffinFuture = True  # Will try to prove this to be false by looking at the configured calendars
 
-#now = datetime.now() + timedelta(hours=-2)
+
 now = datetime.now()
 realnow = datetime.now() 
 intwo = now - timedelta(hours=2)
@@ -83,8 +83,6 @@ logger.debug("Time REAL-NOW: " +str(realnow))
 calendarClient = CalendarClient(storsalurl)
 if calendarClient.shouldPowerBeOn(now,intwo,aftertwo):
     shouldPowerBeOff = False
-#if calendarClient.shouldPowerBeOn(intwo):
-#    shouldPowerBeOffinFuture = False
 
 if shouldPowerBeOff:
     logger.debug("Conclusion: Power should be off" + str(shouldPowerBeOff))
