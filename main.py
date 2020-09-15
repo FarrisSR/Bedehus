@@ -1,11 +1,12 @@
 # -*- coding: UTF-8 -*-
 import logging
 import requests
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, timedelta
 import pytz
-from CalendarClient import CalendarClient
+from Calendalyzer.CalendarClient import CalendarClient
 from grove_relay import GroveRelayClient
 import urllib3
+
 urllib3.disable_warnings()
 
 __author__ = 'Cato'
@@ -18,7 +19,7 @@ maxtemp = 22
 
 utleie = 0
 
-poweron=GroveRelayClient
+poweron = GroveRelayClient
 
 ## Logging:
 console = logging.StreamHandler()
@@ -33,9 +34,9 @@ calendarUrls = [
     # 1.etg-detaljer:
     'https://www.google.com/calendar/ical/84ansm753q4ru2mjc9952nel7g%40group.calendar.google.com/public/basic.ics',
     # Bønnerom-detaljer
-    #'https://www.google.com/calendar/ical/sivrsgorvkkohp6ofe7p65j4o0%40group.calendar.google.com/public/basic.ics',
+    # 'https://www.google.com/calendar/ical/sivrsgorvkkohp6ofe7p65j4o0%40group.calendar.google.com/public/basic.ics',
     # Kjeller-detaljer
-    #'https://www.google.com/calendar/ical/chgvav5nl87ue74dk270vnl1s8%40group.calendar.google.com/public/basic.ics',
+    # 'https://www.google.com/calendar/ical/chgvav5nl87ue74dk270vnl1s8%40group.calendar.google.com/public/basic.ics',
 
 ]
 
@@ -55,11 +56,11 @@ intwo = pytz.utc.localize(intwo)
 # now = datetime.combine(d, t)
 # now = pytz.utc.localize(now)
 ### ^^ END
-#for calendarUrl in calendarUrls:
+# for calendarUrl in calendarUrls:
 calendarClient = CalendarClient(storsalurl)
-if calendarClient.shouldPowerBeOn(now,intwo):
+if calendarClient.shouldPowerBeOn(now, intwo):
     shouldPowerBeOff = False
-#if calendarClient.shouldPowerBeOn(intwo):
+# if calendarClient.shouldPowerBeOn(intwo):
 #    shouldPowerBeOffinFuture = False
 
 if shouldPowerBeOff:
@@ -68,11 +69,11 @@ else:
     logger.debug("Conclusion: Power should be on")
     utleie = 1
 
-temprequest = requests.get(storsaltempurl,verify=False)
-rawtemp=int(str.strip(str(temprequest.text).split('=')[1]))
+temprequest = requests.get(storsaltempurl, verify=False)
+rawtemp = int(str.strip(str(temprequest.text).split('=')[1]))
 
-
-logger.debug("Temperaturen er:" + str(rawtemp) + " mintemp:" + str(mintemp) + " utleietemp:" + str(leiemintemp) + "maxtemp:" + str(maxtemp))
+logger.debug("Temperaturen er:" + str(rawtemp) + " mintemp:" + str(mintemp) + " utleietemp:" + str(
+    leiemintemp) + "maxtemp:" + str(maxtemp))
 
 if utleie:
     mintemp = leiemintemp
