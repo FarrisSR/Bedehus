@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 import logging
-import time, os, urllib, urllib2
-import requests
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, timedelta
 import pytz
-from CalendarClient import CalendarClient
+from Calendalyzer.CalendarClient import CalendarClient
 from ThingSpeakClient import ThingSpeakClient
 from grove_relay import GroveRelayClient
 import urllib3

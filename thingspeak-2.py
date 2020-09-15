@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import time, os, urllib, urllib2
+import time, os, urllib3
 
 __author__ = 'Runo'
 
@@ -18,8 +18,8 @@ class ThingspeakClient:
 #KEY = '72LT0GVTHPYRSEA7'
 
 def send_data(temp):
-    data = urllib.urlencode({'api_key' : KEY, 'field1': temp})
-    response = urllib2.urlopen(url=BASE_URL, data=data)
+    data = urllib3.urlencode({'api_key' : KEY, 'field1': temp})
+    response = urllib3.urlopen(url=BASE_URL, data=data)
     #print(response.read())
 
 #while True:

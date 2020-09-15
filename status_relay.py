@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 #-*- coding: UTF-8 -*-
 import logging
-import requests
-from datetime import datetime, date, time, timedelta
-import pytz
-from CalendarClient import CalendarClient
 from grove_relay import GroveRelayClient
 import urllib3
 urllib3.disable_warnings()
@@ -44,7 +40,7 @@ logger.setLevel(logging.DEBUG)
 logger.debug("DEBUG - Starting")
 
 logger.debug("DEBUG - Conclusion: Power should be on - Utleie ")
-print poweron.powerstatus(relay)
+print(poweron.powerstatus(relay))
 
 logger.debug("DEBUG - Ending")
 

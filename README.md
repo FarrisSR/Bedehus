@@ -19,5 +19,15 @@ The GRove is out!
 https://www.dexterindustries.com/GrovePi/get-started-with-the-grovepi/
 
 
+* Have a look into requirements.txt. 
+
+During development (whenever new requirements are added):
+
+    pip freeze > requirements.txt 
+
+When arriving to a new runtime location, install dependencies like this:
+
+    pip install -r requirements.txt 
+
 --
-FarrisSR
+FarrisSR & Vaskeball

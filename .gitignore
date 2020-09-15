@@ -1,6 +1,5 @@
 /venv/
-/calendar.log
+*.log
 *.pyc
-bedehus_cache.sqlite
-calendar.log
+*.sqlite
 .idea
