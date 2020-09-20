@@ -20,4 +20,6 @@
 # For more information see the manual pages of crontab(5) and cron(8)
 # 
 # m h  dom mon dow   command
-*/15 * * * * /home/pi/templog/monitor.py
+*/15    *       *       *       * flock -n /home/pi/fcrj.lockfile timeout --preserve-status -s9 150 /home/pi/code/bedehus/main_notemp.py >> /dev/null 2>&1
+*    *       *       *       * flock -n /home/pi/cpu.lockfile timeout --preserve-status -s9 150 /home/pi/code/Bedehus/ThingSpeakClient/thing-speak_data.py >> /dev/null 2>&1
+
