@@ -33,10 +33,15 @@ class BedehusTemperaturProgram:
 
         self.logger.info("Program ended. Powerstate on? " + str(power_on))
 
+        return power_on
+
+
 
 def main():
     program = BedehusTemperaturProgram()
     program.start()
+
+
 
 
 if __name__ == "__main__":

@@ -3,11 +3,11 @@
 import logging
 #import time, os, urllib, urllib2
 #import requests
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, timedelta
 import pytz
-from CalendarClient import CalendarClient
-from ThingSpeakClient import ThingSpeakClient
-from sr201class import Sr201
+from Calendara import CalendarClient
+from ThingSpeakClient.ThingSpeakClient import ThingSpeakClient
+from sr201.sr201class import Sr201
 import urllib3
 urllib3.disable_warnings()
 
@@ -90,13 +90,13 @@ else:
     logger.debug("Conclusion: Power should be on" + str(shouldPowerBeOff))
     utleie = 1
 
-sr201 = Sr201('192.168.100.100')
+sr201 = Sr201('192.168.1.100')
 
 if utleie:
 
     logger.debug("Conclusion: Power should be on - Utleie ")
     sr201.do_close('close:1')
-    sr_201.close()
+    sr201.close()
     #tsc.send_data(utleie)
 else:
     #logger.debug("Conclusion: Power should be on - Forced utleie")

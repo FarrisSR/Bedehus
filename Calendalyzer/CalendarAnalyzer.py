@@ -19,18 +19,26 @@ class CalendarAnalyzer:
     def does_event_require_power(self, event):
         logger = self.logger
         logger.debug(str(event))
+        meeting_end = event['DTEND'].dt
+        meeting_start = event['DTSTART'].dt
 
-        if self.has_meeting_ended(event):
+        if meeting_start - timedelta(hours=2) <= self.now <= meeting_end + timedelta(hours=2):
+            return True
+        else:
+            # Møtet starter om litt lenge
             return False
 
-        if self.is_meeting_on(event):
-            return True
+        #if self.has_meeting_ended(event):
+        #    return False
 
-        if self.will_meeting_start_soon(event):
-            return True
+        #if self.is_meeting_on(event):
+        #    return True
+
+        #if self.will_meeting_start_soon(event):
+        #    return True
 
         # Møtet starter om litt lenge
-        return False
+        #return False
 
     def should_power_be_on(self, calendar: Calendar):
         """ It should be on if.. meeting is on - or if meeting starts in two hours or less """
