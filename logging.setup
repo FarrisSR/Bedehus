@@ -1,0 +1,7 @@
+
+#Logging config path to setup
+ln -s ~/logging.config ~/code/sr201/logging.config
+
+#pi@raspberrypi:~/code/sr201 $ ls -ld /home/pi/logging.config
+#lrwxrwxrwx 1 pi pi 34 sep.  25  2020 /home/pi/logging.config -> /home/pi/code/sr201/logging.config
+
