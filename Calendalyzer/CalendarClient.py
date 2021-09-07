@@ -16,6 +16,6 @@ class CalendarClient:
 
     def fetch_calendar(self):
         self.logger.info("Will fetch calendar")
-        requests_cache.install_cache('bedehus_cache', backend='sqlite', expire_after=7200)
+        #requests_cache.install_cache('bedehus_cache', backend='sqlite', expire_after=7200)
         ical_text = requests.get(self.url, verify=True).text
         return Calendar.from_ical(ical_text)

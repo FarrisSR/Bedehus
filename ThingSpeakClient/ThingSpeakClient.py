@@ -6,7 +6,7 @@ __author__ = 'Runo'
 
 
 class ThingSpeakClient:
-    """ A class for fetching ICAL calendar"""
+    """ A class for sending to ThingSpeak calendar"""
 
     def __init__(self, url, apikey):
         self.url = url
