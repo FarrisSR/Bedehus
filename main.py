@@ -1,11 +1,20 @@
 # -*- coding: UTF-8 -*-
 from Calendalyzer.BedehusTemperaturProgram import BedehusTemperaturProgram
 from sr201.sr201class import Sr201
+import time
 
 
 program = BedehusTemperaturProgram()
 if program.start():
     sr201 = Sr201('192.168.100.100')
+    sr201.do_close('close:1')
+    time.sleep(5)
+    sr201.do_open('open:1')
+    time.sleep(5)
+    sr201.do_close('close:1')
+    time.sleep(5)
+    sr201.do_open('open:1')
+    time.sleep(5)
     sr201.do_close('close:1')
     sr201.close()
 else:
