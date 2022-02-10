@@ -22,6 +22,12 @@ class CalendarAnalyzer:
         meeting_end = event['DTEND'].dt
         meeting_start = event['DTSTART'].dt
 
+        print ("Meeting_start: " + str(type(meeting_start)))
+        print ("Self NOW: " + str(type(self.now)))
+        if isinstance(meeting_start, datetime.date):
+            now = self.now.date()
+            self.now = now
+
         if meeting_start - timedelta(hours=2) <= self.now <= meeting_end + timedelta(hours=2):
             return True
         else:
