@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 import logging
-from datetime import datetime, timedelta
+import datetime, timedelta
 
 import pytz as pytz
 from icalendar import Calendar
