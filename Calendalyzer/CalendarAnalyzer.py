@@ -12,8 +12,9 @@ class CalendarAnalyzer:
     """ A Class for analyzing Calendar Events And deciding if power should be on """
 
     def __init__(self):
+        nowtime = datetime.datetime
         self.logger = logging.getLogger(__name__)
-        naive_now = datetime.now()
+        naive_now = nowtime.now()
         timezone = pytz.timezone("Europe/Oslo")
         self.now = timezone.localize(naive_now)
 
@@ -23,11 +24,18 @@ class CalendarAnalyzer:
         meeting_end = event['DTEND'].dt
         meeting_start = event['DTSTART'].dt
 
-        print ("Meeting_start: " + str(type(meeting_start)))
-        print ("Self NOW: " + str(type(self.now)))
+        print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+        print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
+        print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
+        print ("Self NOW: " + str(type(self.now)) + str(self.now))
         if isinstance(meeting_start, datetime.date):
-            now = self.now.date()
-            self.now = now
+            return False
+            #now = self.now.date()
+            #self.now = now
+            #print ("Self NOW: " + str(type(self.now)) + str(self.now))
+        #if isinstance(meeting_end, datetime.date):
+        #    now = self.now.date()
+        #    self.now = now
 
         if meeting_start - timedelta(hours=2) <= self.now <= meeting_end + timedelta(hours=2):
             return True
