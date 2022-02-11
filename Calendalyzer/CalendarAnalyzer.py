@@ -17,6 +17,7 @@ class CalendarAnalyzer:
         naive_now = nowtime.now()
         timezone = pytz.timezone("Europe/Oslo")
         self.initnow = timezone.localize(naive_now)
+        self.debug = False
 
     def does_event_require_power(self, event):
         logger = self.logger
@@ -25,20 +26,23 @@ class CalendarAnalyzer:
         meeting_start = event['DTSTART'].dt
         self.now = self.initnow
         onlydate = False
-        #print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
-        #print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
-        #print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
-        #print ("Self NOW: " + str(type(self.now)) + str(self.now))
-        if isinstance(meeting_start, datetime.datetime):
-            #print ("Do nothing")
-            Checkthis = True
-            #print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
-            #return False
-        elif isinstance(meeting_start, datetime.date):
+        if self.debug:
             print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
-            #return False
-            self.now = datetime.datetime.now().date()
+            print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
+            print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
             print ("Self NOW: " + str(type(self.now)) + str(self.now))
+        if isinstance(meeting_start, datetime.datetime):
+            #Is meeting_start a datetime.datetime object
+            Checkthis = True
+        elif isinstance(meeting_start, datetime.date):
+            #Is meeting_start a datetime.date object
+            if self.debug:
+                print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+
+            self.now = datetime.datetime.now().date()
+
+            if self.debug:
+                print ("Self NOW: " + str(type(self.now)) + str(self.now))
             onlydate = True
         else:
             logger.debug(str(event))
@@ -58,17 +62,6 @@ class CalendarAnalyzer:
                 # Møtet starter om litt lenge
                 return False
 
-        #if self.has_meeting_ended(event):
-        #    return False
-
-        #if self.is_meeting_on(event):
-        #    return True
-
-        #if self.will_meeting_start_soon(event):
-        #    return True
-
-        # Møtet starter om litt lenge
-        #return False
 
     def should_power_be_on(self, calendar: Calendar):
         """ It should be on if.. meeting is on - or if meeting starts in two hours or less """
@@ -78,22 +71,3 @@ class CalendarAnalyzer:
             if should_power_be_on:
                 return True
         return False
-
-    def has_meeting_ended(self, event):
-        meeting_end = event['DTEND'].dt
-        if meeting_end < self.now:
-            return True
-
-    def is_meeting_on(self, event):
-        meeting_start = event['DTSTART'].dt
-        meeting_end = event['DTEND'].dt
-        if meeting_end > self.now:
-            if meeting_start <= self.now:
-                return True
-
-    def will_meeting_start_soon(self, event):
-        meeting_start = event['DTSTART'].dt
-        meeting_end = event['DTEND'].dt
-        if meeting_end < self.now:
-            if meeting_start - timedelta(hours=2) <= self.now:
-                return True
