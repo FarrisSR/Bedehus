@@ -40,9 +40,10 @@ class CalendarAnalyzer:
             self.now = datetime.datetime.now().date()
             print ("Self NOW: " + str(type(self.now)) + str(self.now))
             onlydate = True
-        #if isinstance(meeting_end, datetime.date):
-        #    now = self.now.date()
-        #    self.now = now
+        else:
+            logger.debug(str(event))
+            logger.debug("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+            return False
 
         if onlydate:
             if meeting_start <= self.now <= meeting_end :
