@@ -16,32 +16,46 @@ class CalendarAnalyzer:
         self.logger = logging.getLogger(__name__)
         naive_now = nowtime.now()
         timezone = pytz.timezone("Europe/Oslo")
-        self.now = timezone.localize(naive_now)
+        self.initnow = timezone.localize(naive_now)
 
     def does_event_require_power(self, event):
         logger = self.logger
         logger.debug(str(event))
         meeting_end = event['DTEND'].dt
         meeting_start = event['DTSTART'].dt
-
+        self.now = self.initnow
+        onlydate = False
         #print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
         #print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
         #print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
         #print ("Self NOW: " + str(type(self.now)) + str(self.now))
-        if isinstance(meeting_start, datetime.date):
-            return False
-            #now = self.now.date()
-            #self.now = now
-            #print ("Self NOW: " + str(type(self.now)) + str(self.now))
+        if isinstance(meeting_start, datetime.datetime):
+            #print ("Do nothing")
+            Checkthis = True
+            #print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+            #return False
+        elif isinstance(meeting_start, datetime.date):
+            print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+            #return False
+            self.now = datetime.datetime.now().date()
+            print ("Self NOW: " + str(type(self.now)) + str(self.now))
+            onlydate = True
         #if isinstance(meeting_end, datetime.date):
         #    now = self.now.date()
         #    self.now = now
 
-        if meeting_start - timedelta(hours=2) <= self.now <= meeting_end + timedelta(hours=2):
-            return True
+        if onlydate:
+            if meeting_start <= self.now <= meeting_end :
+                return True
+            else:
+                # Møtet starter om litt lenge
+                return False
         else:
-            # Møtet starter om litt lenge
-            return False
+            if meeting_start - timedelta(hours=2) <= self.now <= meeting_end + timedelta(hours=2):
+                return True
+            else:
+                # Møtet starter om litt lenge
+                return False
 
         #if self.has_meeting_ended(event):
         #    return False
