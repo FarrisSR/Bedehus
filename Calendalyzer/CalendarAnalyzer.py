@@ -24,10 +24,10 @@ class CalendarAnalyzer:
         meeting_end = event['DTEND'].dt
         meeting_start = event['DTSTART'].dt
 
-        print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
-        print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
-        print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
-        print ("Self NOW: " + str(type(self.now)) + str(self.now))
+        #print ("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+        #print ("Meeting_start-minus2: " + str(type(meeting_start - timedelta(hours=2))))
+        #print ("Meeting_end: " + str(type(meeting_end)) + str(meeting_end))
+        #print ("Self NOW: " + str(type(self.now)) + str(self.now))
         if isinstance(meeting_start, datetime.date):
             return False
             #now = self.now.date()
