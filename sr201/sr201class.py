@@ -282,6 +282,17 @@ class Sr201(object):
         #     '%d-%s' % (r + 1, states[r] == '0' and 'open' or 'closed')
         #     for r in range(len(states))) + '\n')
 
+    def do_return_status(self, command):
+        if command != 'status':
+            usage('Invalid status %r' % (command,))
+        self.open()
+        self.send('00')
+        states = self.recv()
+        return(states)
+        # sys.stdout.write('relay status: ' + ' '.join(
+        #     '%d-%s' % (r + 1, states[r] == '0' and 'open' or 'closed')
+        #     for r in range(len(states))) + '\n')
+
     #
     # config functions
     #
