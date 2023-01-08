@@ -11,7 +11,7 @@ try:
      sr201 = Sr201('192.168.100.100')
 
      status = sr201.do_return_status('status')
-     print(type(int(status)))
+     #print(type(int(status)))
      print('Current status')
      print(str(status[0]))
      sr201.close()
