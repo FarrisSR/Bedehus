@@ -31,8 +31,10 @@ class BedehusTemperaturProgram:
         calendar_analyzer = CalendarAnalyzer()
         power_on = calendar_analyzer.should_power_be_on(calendar)
 
-        self.logger.info("Program ended. Powerstate on? " + str(power_on))
-
+        if power_on:
+            self.logger.info("Program ended. Powerstate on! " + str(power_on))
+        else:
+            self.logger.info("Program ended. Powerstate off! " + str(power_on))
         return power_on
 
 
