@@ -1,9 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
+"""Python dotenv"""
+"""Argparse"""
+"""Use Result module to help with expection handling"""
+"""Look at Loguru to replace logging"""
 import logging
 import datetime
 from datetime import timedelta
-
+"""Convert from pytz to pendulum?"""
+"""Icecream for debugging"""
 import pytz as pytz
 from icalendar import Calendar
 
@@ -17,11 +22,17 @@ class CalendarAnalyzer:
         naive_now = nowtime.now()
         timezone = pytz.timezone("Europe/Oslo")
         self.initnow = timezone.localize(naive_now)
+        #self.initnow = naive_now
+
+        self.ztimenow = datetime.datetime.now()
         self.debug = False
 
     def does_event_require_power(self, event):
         logger = self.logger
         logger.debug(str(event))
+        print("INITNOW" +str(self.initnow))
+        print("ZNOW" + str(type(self.ztimenow)) + str(self.ztimenow))
+
         meeting_end = event['DTEND'].dt
         meeting_start = event['DTSTART'].dt
         self.now = self.initnow
