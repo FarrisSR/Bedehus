@@ -6,6 +6,7 @@ from googleapiclient.discovery import build
 from sr201.sr201class import Sr201
 from mock_sr201class import MockSr201 # Import the mock class
 from loguru import logger
+from loguru._logger import SyslogSink
 
 # Debug
 #import tracemalloc
@@ -19,10 +20,17 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 SR201_IP = '192.168.100.100'
 CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
-
+syslog_sink = SyslogSink(
+    host="10.253.4.1",
+    port=5514,  # Standard syslog UDP port
+    protocol="udp",
+    facility="local0",  # Customize the facility as needed
+    level="INFO",  # Specify the log level you want to send
+    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+)
 # Setup logger
 logger.add(LOG_FILE, rotation="1 day", retention="30 days", compression="gz")
-
+logger.add(syslog_sink)
 
 def setup_google_calendar_client():
     try:
