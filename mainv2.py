@@ -4,33 +4,47 @@ import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from sr201.sr201class import Sr201
-from mock_sr201class import MockSr201 # Import the mock class
-from loguru import logger
-from loguru._logger import SyslogSink
-
-# Debug
-#import tracemalloc
-#tracemalloc.start()
+from mock_sr201class import MockSr201  # Import the mock class
+import logging
+from logging.handlers import SysLogHandler
 
 # Configuration variables
 USE_MOCK_SR201 = True  # Set to False when using real SR201
-# Configuration variables
 KEY_FILE = 'service-account-key.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 SR201_IP = '192.168.100.100'
 CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
-syslog_sink = SyslogSink(
-    host="10.253.4.1",
-    port=5514,  # Standard syslog UDP port
-    protocol="udp",
-    facility="local0",  # Customize the facility as needed
-    level="INFO",  # Specify the log level you want to send
-    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-)
-# Setup logger
-logger.add(LOG_FILE, rotation="1 day", retention="30 days", compression="gz")
-logger.add(syslog_sink)
+
+
+def setup_logging():
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    # File handler
+    file_handler = logging.FileHandler(LOG_FILE)
+    file_handler.setLevel(logging.INFO)
+    file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_format)
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(file_format)
+    logger.addHandler(console_handler)
+
+    # Syslog handler
+    syslog_handler = SysLogHandler(address=('10.253.4.1', 5514))
+    syslog_handler.setLevel(logging.INFO)
+    syslog_format = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    syslog_handler.setFormatter(syslog_format)
+    logger.addHandler(syslog_handler)
+
+    return logger
+
+
+logger = setup_logging()
 
 def setup_google_calendar_client():
     try:
