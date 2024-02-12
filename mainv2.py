@@ -43,8 +43,14 @@ def setup_logging():
 
     return logger
 
+def initialize():
+    global logger
+    logger = setup_logging()
+    # Any other initialization code can go here
+    # Change directory to the script's directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
 
-logger = setup_logging()
 
 def setup_google_calendar_client():
     try:
@@ -106,6 +112,7 @@ def process_events(events):
 
 def main():
     try:
+        initialize()
         # Setup Google Calendar client
         service = setup_google_calendar_client()
 
