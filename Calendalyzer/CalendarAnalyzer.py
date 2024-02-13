@@ -3,7 +3,6 @@
 """Python dotenv"""
 """Argparse"""
 """Use Result module to help with expection handling"""
-"""Look at Loguru to replace logging"""
 import logging
 import datetime
 from datetime import timedelta
