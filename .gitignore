@@ -2,4 +2,10 @@
 *.log
 *.pyc
 *.sqlite
-.idea
+.idea/*
+/a.out
+/sr201emualtorin
+/token.pickle
+/credentials.json
+/BedehusTemperaturProgram.2023-12-14_21-02-43_505922.log.gz
+*.~
