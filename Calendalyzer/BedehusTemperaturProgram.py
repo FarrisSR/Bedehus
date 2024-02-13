@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 import logging
 import logging.config
+import socket
 
 __author__ = 'Cato'
 
