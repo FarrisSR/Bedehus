@@ -55,8 +55,9 @@ class CalendarAnalyzer:
                 print ("Self NOW: " + str(type(self.now)) + str(self.now))
             onlydate = True
         else:
-            logger.debug(str(event))
-            logger.debug("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
+            if self.debug:
+                logger.debug(str(event))
+                logger.debug("Meeting_start: " + str(type(meeting_start)) + str(meeting_start))
             return False
 
         if onlydate:
@@ -74,6 +75,8 @@ class CalendarAnalyzer:
 
 
     def should_power_be_on(self, calendar: Calendar):
+        # """Widar er på Topptur"""
+        # return False
         """ It should be on if.. meeting is on - or if meeting starts in two hours or less """
         self.logger.info("Ser i kalender: " + calendar['X-WR-CALDESC'])
         for event in calendar.walk('vevent'):
