@@ -5,13 +5,23 @@ from Calendalyzer.BedehusTemperaturProgram import BedehusTemperaturProgram
 from sr201.sr201class import Sr201
 import time
 
+
+class HostnameFilter(logging.Filter):
+    hostname = socket.gethostname()
+
+    def filter(self, record):
+        record.hostname = self.hostname
+        return True
+
 status = ""
 heaton = False
 relaystatus = False
+
 logging.config.fileConfig(fname='logging.config', disable_existing_loggers=True)
 logger = logging.getLogger(__name__)
+logger.addFilter(HostnameFilter())
 
-try: 
+try:
      sr201 = Sr201('192.168.100.100')
 
      status = sr201.do_return_status('status')
