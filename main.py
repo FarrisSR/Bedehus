@@ -4,7 +4,7 @@ import logging.config
 from Calendalyzer.BedehusTemperaturProgram import BedehusTemperaturProgram
 from sr201.sr201class import Sr201
 import time
-
+import socket
 
 class HostnameFilter(logging.Filter):
     hostname = socket.gethostname()
