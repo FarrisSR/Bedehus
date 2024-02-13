@@ -1,4 +1,5 @@
 import os
+import socket
 import datetime
 import time
 from google.oauth2 import service_account
@@ -6,6 +7,7 @@ from googleapiclient.discovery import build
 from sr201.sr201class import Sr201
 from mock_sr201class import MockSr201  # Import the mock class
 import logging
+import logging.config
 from logging.handlers import SysLogHandler
 
 # Configuration variables
@@ -16,47 +18,58 @@ SR201_IP = '192.168.100.100'
 CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
 
+class HostnameFilter(logging.Filter):
+    hostname = socket.gethostname()
+
+    def filter(self, record):
+        record.hostname = self.hostname
+        return True
 
 def setup_logging():
+    logging.config.fileConfig(fname='logging.config', disable_existing_loggers=False)
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    #logger.setLevel(logging.INFO)
+    #logger.addFilter(HostnameFilter())
 
     # File handler
-    file_handler = logging.FileHandler(LOG_FILE)
-    file_handler.setLevel(logging.INFO)
-    file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(file_format)
-    logger.addHandler(file_handler)
+    #file_handler = logging.FileHandler(LOG_FILE)
+    #file_handler.setLevel(logging.INFO)
+    #file_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    #file_handler.setFormatter(file_format)
+    #logger.addHandler(file_handler)
 
     # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(file_format)
-    logger.addHandler(console_handler)
+    #console_handler = logging.StreamHandler()
+    #console_handler.setLevel(logging.INFO)
+    #console_handler.setFormatter(file_format)
+    #logger.addHandler(console_handler)
 
     # Syslog handler
-    syslog_handler = SysLogHandler(address=('10.253.4.1', 5514))
-    syslog_handler.setLevel(logging.INFO)
-    syslog_format = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
-    syslog_handler.setFormatter(syslog_format)
-    logger.addHandler(syslog_handler)
+    #syslog_handler = SysLogHandler(address=('10.253.4.1', 5514))
+    #syslog_handler.setLevel(logging.INFO)
+    #syslog_format = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s:%(funcName)s:%(lineno)d - %(message)s')
+    #syslog_handler.setFormatter(syslog_format)
+    #logger.addHandler(syslog_handler)
 
     return logger
 
 def initialize():
     global logger
     logger = setup_logging()
+    logger.setLevel(logging.INFO)
+    logger.addFilter(HostnameFilter())
     # Any other initialization code can go here
     # Change directory to the script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
 
 
+
 def setup_google_calendar_client():
     try:
         credentials = service_account.Credentials.from_service_account_file(
             KEY_FILE, scopes=SCOPES)
-        service = build('calendar', 'v3', credentials=credentials)
+        service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
         return service
     except Exception as e:
         logger.error(f"Error setting up Google Calendar client: {e}")
