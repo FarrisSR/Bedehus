@@ -32,7 +32,7 @@ class BedehusTemperaturProgram:
         logging.config.fileConfig(fname='logging.config', disable_existing_loggers=True)
 
     def start(self):
-        self.logger.info("Program starting")
+        #self.logger.info("Program starting")
         self.logger.debug("Program started")
         calendar_client = CalendarClient(storsalurl)  # type: object
         calendar = calendar_client.fetch_calendar()
