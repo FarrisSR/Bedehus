@@ -18,6 +18,7 @@ heaton = False
 relaystatus = False
 
 logging.config.fileConfig(fname='logging.config', disable_existing_loggers=True)
+global logger
 logger = logging.getLogger(__name__)
 logger.addFilter(HostnameFilter())
 
