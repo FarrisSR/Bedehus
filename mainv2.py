@@ -81,7 +81,7 @@ def interact_with_sr201(action):
             sr201.do_open('open:1')
             time.sleep(5)
             sr201.do_close('close:1')
-            if action == 'heat_off'
+            if action == 'heat_off':
                 time.sleep(5)
                 sr201.do_open('open:1')
             sr201.close()
