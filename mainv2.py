@@ -17,6 +17,8 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 SR201_IP = '192.168.100.100'
 CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
+RELAY_STATE_FILE = 'relay_state.txt'
+
 
 class HostnameFilter(logging.Filter):
     hostname = socket.gethostname()
@@ -25,11 +27,13 @@ class HostnameFilter(logging.Filter):
         record.hostname = self.hostname
         return True
 
+
 def setup_logging():
     logging.config.fileConfig(fname='logging.config', disable_existing_loggers=False)
     logger = logging.getLogger(__name__)
 
     return logger
+
 
 def initialize():
     global logger
@@ -40,7 +44,6 @@ def initialize():
     # Change directory to the script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
-
 
 
 def setup_google_calendar_client():
@@ -66,7 +69,54 @@ def get_calendar_events(service, start_time, end_time):
         raise
 
 
-def interact_with_sr201(action):
+def string_to_bool(relay_state_read_from_file: str):
+    """
+    This function takes a string representing a boolean value read from a file
+    and converts it to a corresponding boolean value.
+
+    Args:
+        relay_state_read_from_file (str): The string read from the file representing a boolean value.
+
+    Returns:
+        bool: The boolean value corresponding to the input string. Returns False if the input string is not 'True'.
+
+    Example:
+        string_to_bool("True") -> True
+        string_to_bool("False") -> False
+        string_to_bool("Invalid") -> False
+    """
+    return {"True": True, "False": False}.get(relay_state_read_from_file, False)
+
+
+def save_relay_state(state: bool):
+    # assert state in ["True", "False"], "Input must be 'True' or 'False'"
+    # Input validation replaced assert with an explicit check
+    # if state not in ["True", "False"]:
+    #    # Raising an exception for invalid input
+    #    # raise ValueError("Input must be 'True' or 'False'")
+
+    try:
+        with open(RELAY_STATE_FILE, 'w') as file:
+            file.write(str(state))
+    except Exception as e:
+        logger.error(f"Error saving relay state: {e}")
+
+
+def read_relay_state():
+    try:
+        with open(RELAY_STATE_FILE, 'r') as file:
+            return string_to_bool(file.read().strip())
+    except FileNotFoundError:
+        # Log that the state file does not exist; this is expected on the first run
+        logger.info("Relay state file not found. Assuming state is unknown.")
+        return False
+    except Exception as e:
+        # Log any other exceptions that occur while reading the file
+        logger.error(f"Error reading relay state: {e}")
+        return False
+
+
+def interact_with_sr201(action: str):
     # Choose between real or mock SR201 based on the USE_MOCK_SR201 variable
     sr201_class = MockSr201 if USE_MOCK_SR201 else Sr201
     try:
@@ -104,6 +154,41 @@ def process_events(events):
     return heat_on
 
 
+# Define a function to check and interact with the SR201 device based on the heat_on parameter
+def check_relay_state(heat_on: bool):
+    # Get the last state of the relay
+    last_state = read_relay_state()
+    # Log the last state
+    logger.info("Last state: " + str(last_state))
+    # Get the current relay status by interacting with the SR201 device
+    relay_status = interact_with_sr201('check_status')
+    # Save the current relay status
+    save_relay_state(relay_status)
+
+    heat_logic(heat_on, last_state, relay_status)
+
+
+def heat_logic(heat_on: bool, last_state: bool, relay_status: bool):
+    # Check if there is a change in the heat_on parameter compared to the last state
+    if heat_on != last_state:
+        logger.info("Change of state detected")
+    # Check if heat is supposed to be on
+    if heat_on:
+        # If the relay status is off, turn the heat on
+        if not relay_status:
+            logger.info("Turning heat on.")
+            interact_with_sr201('heat_on')
+        else:
+            logger.info("Relay is already on, not turning heat on.")
+    else:
+        # If the relay status is on, turn the heat off
+        if relay_status:
+            logger.info("Turning heat off.")
+            interact_with_sr201('heat_off')
+        else:
+            logger.info("Relay is already off, not turning heat off.")
+
+
 def main():
     try:
         initialize()
@@ -121,18 +206,12 @@ def main():
         heat_on = process_events(events)
 
         # Check and update SR-201 relay status
-        relay_status = interact_with_sr201('check_status')
-        if heat_on:
-            if not relay_status:
-                logger.info("Turning heat on.")
-                interact_with_sr201('heat_on')
-        else:
-            if relay_status:
-                logger.info("Turning heat off.")
-                interact_with_sr201('heat_off')
+        check_relay_state(heat_on)
 
     except Exception as e:
+        # Log an error message indicating an exception occurred in the main function
         logger.error(f"Error in main: {e}")
+        # Exit the program with an exit code of 1
         exit(1)
 
 
