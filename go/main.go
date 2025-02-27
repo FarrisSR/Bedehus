@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Bedehus/gcal"  // Import the sr201 package
 	"Bedehus/sr201" // Import the sr201 package
 	//"github.com/FarrisSR/gosr201" // Import the sr201 package
 	"log"
