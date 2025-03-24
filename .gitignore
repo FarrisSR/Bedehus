@@ -8,3 +8,6 @@
 /token.pickle
 /credentials.json
 /BedehusTemperaturProgram.2023-12-14_21-02-43_505922.log.gz
+BedehusTemperaturProgram.log
+BedehusTemperaturProgram.log*
+*~

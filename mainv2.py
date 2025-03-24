@@ -11,11 +11,12 @@ import logging.config
 from logging.handlers import SysLogHandler
 
 # Configuration variables
-USE_MOCK_SR201 = True  # Set to False when using real SR201
+USE_MOCK_SR201 = False  # Set to False when using real SR201
 KEY_FILE = 'service-account-key.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 SR201_IP = '192.168.100.100'
 CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
+PRAY_ID = 'sivrsgorvkkohp6ofe7p65j4o0@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
 RELAY_STATE_FILE = 'relay_state.txt'
 
@@ -57,10 +58,10 @@ def setup_google_calendar_client():
         raise
 
 
-def get_calendar_events(service, start_time, end_time):
+def get_calendar_events(calendar, service, start_time, end_time):
     try:
         events_result = service.events().list(
-            calendarId=CALENDAR_ID, timeMin=start_time.isoformat() + 'Z',
+            calendarId=calendar, timeMin=start_time.isoformat() + 'Z',
             timeMax=end_time.isoformat() + 'Z', singleEvents=True,
             orderBy='startTime').execute()
         return events_result.get('items', [])
@@ -163,7 +164,7 @@ def check_relay_state(heat_on: bool):
     # Get the current relay status by interacting with the SR201 device
     relay_status = interact_with_sr201('check_status')
     # Save the current relay status
-    save_relay_state(relay_status)
+    save_relay_state(heat_on)
 
     heat_logic(heat_on, last_state, relay_status)
 
@@ -200,7 +201,7 @@ def main():
         time_window_end = current_time + datetime.timedelta(hours=2)
 
         # Get calendar events
-        events = get_calendar_events(service, current_time, time_window_end)
+        events = get_calendar_events(CALENDAR_ID, service, current_time, time_window_end)
 
         # Process events and determine if heating is needed
         heat_on = process_events(events)
