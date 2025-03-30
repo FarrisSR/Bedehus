@@ -202,13 +202,13 @@ def check_update_pray(pray_heat_on):
         if pray_heat_on:
             logger.info("Set PRAY heat to 21C.")
             result = controller.set_temperature(21)
-            logger.debug(controller.get_control_status())
+            logger.debug(str(controller.get_control_status()))
         else:
             logger.info("Set PRAY heat to 17C.")
             result = controller.set_temperature(17)
-            logger.debug(controller.get_control_status())
+            logger.debug(str(controller.get_control_status()))
 
-        logger.info("PRAY" + result)
+        logger.info("PRAY" + str(result))
     except Exception as e:
         # Log an error message indicating an exception occurred in the main function
         logger.error(f"Error interacting with PRAY: {e}")
