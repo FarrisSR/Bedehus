@@ -61,7 +61,8 @@ func getCalendarEvents(service *calendar.Service, calendarID string, timeMin, ti
 	return events.Items, nil
 }
 
-func main() {
+func EventCheck() bool {
+	CurrentEvent := false
 	service, err := setupGoogleCalendarClient()
 	if err != nil {
 		log.Fatalf("Error setting up Google Calendar client: %v", err)
@@ -81,7 +82,7 @@ func main() {
 	Now := time.Now()
 	//Now := time.Now()
 	timeMin := Now.Add(-2 * time.Hour) // last 2 hours
-	timeMax := Now.Add(2 * time.Hour) // Next 2 hours
+	timeMax := Now.Add(2 * time.Hour)  // Next 2 hours
 	events, err := getCalendarEvents(service, calendarID, timeMin, timeMax)
 	if err != nil {
 		sysLog.Err("Error retrieving calendar events: %v" + err.Error())
@@ -89,6 +90,8 @@ func main() {
 
 	for _, event := range events {
 		sysLog.Warning("Event: " + event.Summary + " Start Time: " + event.Start.DateTime + "\n")
+		CurrentEvent = true
 	}
 	sysLog.Warning("End of script")
+	return CurrentEvent
 }

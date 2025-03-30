@@ -8,14 +8,9 @@ import (
 	//"/home/runo/code/Bedehus/go/sr201/" // Import the sr201 package
 )
 
-func main() {
-	// Create a configuration for the SR201 device
-	config := sr201.Config{
-		IP:       "192.168.100.100", // Replace with your device's IP
-		Port:     "6722",            // Replace with your device's port
-		Protocol: "tcp",             // Use "tcp" or "udp"
-		Relay:    1,                 // Relay number to operate on
-	}
+var ON bool //HEAT Status
+
+func  ToggleHEAT (ON bool) {
 
 	// Create a new SR201 instance
 	device, err := sr201.NewSR201(config)
@@ -31,11 +26,18 @@ func main() {
 		log.Fatalf("Error checking status: %v", err)
 	}
 
+  // Convert the status string to an integer, then to a boolean.
+  i, err := strconv.Atoi(status)
+  if err != nil {
+    return false, err
+  }
+  return i != 0, nil
+
 	// 2. Close the relay
 	err = device.ExecuteAction("close")
 	if err != nil {
 		log.Fatalf("Error closing relay: %v", err)
-	}
+  }
 
 	// 3. Check the status of the relay
 	err = device.ExecuteAction("status")
@@ -53,6 +55,21 @@ func main() {
 	err = device.ExecuteAction("status")
 	if err != nil {
 		log.Fatalf("Error checking status: %v", err)
+}
+
+func main() {
+	// Create a configuration for the SR201 device
+	config := sr201.Config{
+		IP:       "192.168.100.100", // Replace with your device's IP
+		Port:     "6722",            // Replace with your device's port
+		Protocol: "tcp",             // Use "tcp" or "udp"
+		Relay:    1,                 // Relay number to operate on
+	}
+
+  ON = gcal.EventCheck()
+  
+  ToggleHEAT(ON) 
+
 	}
 
 }
