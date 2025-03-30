@@ -4,6 +4,7 @@ import datetime
 import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from mill_controller.mill_controller import mill_controller
 from sr201.sr201class import Sr201
 from mock_sr201class import MockSr201  # Import the mock class
 import logging
@@ -19,6 +20,8 @@ CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
 PRAY_ID = 'sivrsgorvkkohp6ofe7p65j4o0@group.calendar.google.com'
 LOG_FILE = "BedehusTemperaturProgram.log"
 RELAY_STATE_FILE = 'relay_state.txt'
+MILL_IP_ADDRESS = "192.168.0.173"
+MILL_TEMP_TYPE = "Normal"
 
 
 class HostnameFilter(logging.Filter):
@@ -30,7 +33,8 @@ class HostnameFilter(logging.Filter):
 
 
 def setup_logging():
-    logging.config.fileConfig(fname='logging.config', disable_existing_loggers=False)
+    logging.config.fileConfig(fname='logging.config',
+                              disable_existing_loggers=False)
     logger = logging.getLogger(__name__)
 
     return logger
@@ -51,7 +55,8 @@ def setup_google_calendar_client():
     try:
         credentials = service_account.Credentials.from_service_account_file(
             KEY_FILE, scopes=SCOPES)
-        service = build('calendar', 'v3', credentials=credentials, cache_discovery=False)
+        service = build('calendar', 'v3',
+                        credentials=credentials, cache_discovery=False)
         return service
     except Exception as e:
         logger.error(f"Error setting up Google Calendar client: {e}")
@@ -190,6 +195,26 @@ def heat_logic(heat_on: bool, last_state: bool, relay_status: bool):
             logger.info("Relay is already off, not turning heat off.")
 
 
+def check_update_pray(pray_heat_on):
+    try:
+        controller = mill_controller(
+            ip_address=MILL_IP_ADDRESS, temp_type=MILL_TEMP_TYPE)
+        if pray_heat_on:
+            logger.info("Set PRAY heat to 21C.")
+            result = controller.set_temperature(21)
+            logger.debug(controller.get_control_status())
+        else:
+            logger.info("Set PRAY heat to 17C.")
+            result = controller.set_temperature(17)
+            logger.debug(controller.get_control_status())
+
+        logger.info("PRAY" + result)
+    except Exception as e:
+        # Log an error message indicating an exception occurred in the main function
+        logger.error(f"Error interacting with PRAY: {e}")
+        raise
+
+
 def main():
     try:
         initialize()
@@ -200,14 +225,27 @@ def main():
         current_time = datetime.datetime.utcnow()
         time_window_end = current_time + datetime.timedelta(hours=2)
 
+        # Storsalen
         # Get calendar events
-        events = get_calendar_events(CALENDAR_ID, service, current_time, time_window_end)
+        events = get_calendar_events(
+            CALENDAR_ID, service, current_time, time_window_end)
 
         # Process events and determine if heating is needed
         heat_on = process_events(events)
 
         # Check and update SR-201 relay status
         check_relay_state(heat_on)
+
+        # Bønnerom
+        # Get calendar events
+        events = get_calendar_events(
+            PRAY_ID, service, current_time, time_window_end)
+
+        # Process events and determine if heating is needed
+        pray_heat_on = process_events(events)
+
+        # Check and update SR-201 relay status
+        check_update_pray(pray_heat_on)
 
     except Exception as e:
         # Log an error message indicating an exception occurred in the main function
