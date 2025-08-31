@@ -11,3 +11,6 @@
 BedehusTemperaturProgram.log
 BedehusTemperaturProgram.log*
 *~
+**/__pycache__/
+*.pyc
+service-account-key.json
