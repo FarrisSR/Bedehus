@@ -11,3 +11,5 @@
 BedehusTemperaturProgram.log
 BedehusTemperaturProgram.log*
 *~
+service-account-key.json
+relay_state.txt

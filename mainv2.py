@@ -200,12 +200,13 @@ def check_update_pray(pray_heat_on):
         controller = mill_controller(
             ip_address=MILL_IP_ADDRESS, temp_type=MILL_TEMP_TYPE)
         if pray_heat_on:
-            logger.info("Set PRAY heat to 21C.")
-            result = controller.set_temperature(21)
+            logger.info("Set PRAY heat to 20C.")
+            result = controller.set_temperature(20)
             logger.debug(str(controller.get_control_status()))
         else:
             logger.info("Set PRAY heat to 17C.")
             result = controller.set_temperature(17)
+            # result = controller.set_temperature(20)
             logger.debug(str(controller.get_control_status()))
 
         logger.info("PRAY" + str(result))
