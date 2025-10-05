@@ -5,6 +5,7 @@ import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from mill_controller.mill_controller import mill_controller
+from glamox.glamox_controller import glamox_controller
 from sr201.sr201class import Sr201
 from mock_sr201class import MockSr201  # Import the mock class
 import logging
@@ -122,6 +123,13 @@ def read_relay_state():
         return False
 
 
+def update_storsalen_glamox(heat_on: bool):
+    ctrl = glamox_controller(room_name="Storsalen")
+    ctrl.set_temperature(21 if heat_on else 17)
+    status = ctrl.get_control_status()
+    logger.debug(f"STORSALEN status: {status}")
+
+
 def interact_with_sr201(action: str):
     # Choose between real or mock SR201 based on the USE_MOCK_SR201 variable
     sr201_class = MockSr201 if USE_MOCK_SR201 else Sr201
@@ -184,6 +192,7 @@ def heat_logic(heat_on: bool, last_state: bool, relay_status: bool):
         if not relay_status:
             logger.info("Turning heat on.")
             interact_with_sr201('heat_on')
+            update_storsalen_glamox((heat_on))
         else:
             logger.info("Relay is already on, not turning heat on.")
     else:
@@ -191,6 +200,7 @@ def heat_logic(heat_on: bool, last_state: bool, relay_status: bool):
         if relay_status:
             logger.info("Turning heat off.")
             interact_with_sr201('heat_off')
+            update_storsalen_glamox((False))
         else:
             logger.info("Relay is already off, not turning heat off.")
 
@@ -238,14 +248,14 @@ def main():
 
         # Bønnerom
         # Get calendar events
-        # events = get_calendar_events(
-        #    PRAY_ID, service, current_time, time_window_end)
+        events = get_calendar_events(
+            PRAY_ID, service, current_time, time_window_end)
 
         # Process events and determine if heating is needed
-        # pray_heat_on = process_events(events)
+        pray_heat_on = process_events(events)
 
         # Check and update SR-201 relay status
-        # check_update_pray(pray_heat_on)
+        check_update_pray(pray_heat_on)
 
     except Exception as e:
         # Log an error message indicating an exception occurred in the main function
