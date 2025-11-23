@@ -125,9 +125,9 @@ def read_relay_state():
 
 def update_storsalen_glamox(heat_on: bool):
     ctrl = glamox_controller(room_name="Storsalen")
-    ctrl.set_temperature(21 if heat_on else 17)
+    ctrl.set_temperature(22 if heat_on else 18)
     status = ctrl.get_control_status()
-    logger.debug(f"STORSALEN status: {status}")
+    logger.info(f"STORSALEN status: {status}")
 
 
 def interact_with_sr201(action: str):
