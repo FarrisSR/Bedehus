@@ -23,6 +23,7 @@ LOG_FILE = "BedehusTemperaturProgram.log"
 RELAY_STATE_FILE = 'relay_state.txt'
 MILL_IP_ADDRESS = "192.168.0.173"
 MILL_TEMP_TYPE = "Normal"
+EVENT_LOOKAHEAD = datetime.timedelta(hours=5)
 
 
 class HostnameFilter(logging.Filter):
@@ -36,7 +37,8 @@ class HostnameFilter(logging.Filter):
 def setup_logging():
     logging.config.fileConfig(fname='logging.config',
                               disable_existing_loggers=False)
-    logger = logging.getLogger(__name__)
+    #logger = logging.getLogger(__name__)
+    logger = logging.getLogger('bedehus-varme')
 
     return logger
 
@@ -125,7 +127,7 @@ def read_relay_state():
 
 def update_storsalen_glamox(heat_on: bool):
     ctrl = glamox_controller(room_name="Storsalen")
-    ctrl.set_temperature(22 if heat_on else 18)
+    ctrl.set_temperature(24 if heat_on else 18)
     status = ctrl.get_control_status()
     logger.info(f"STORSALEN status: {status}")
 
@@ -233,7 +235,8 @@ def main():
 
         # Define the time window for events
         current_time = datetime.datetime.utcnow()
-        time_window_end = current_time + datetime.timedelta(hours=2)
+        # time_window_end = current_time + datetime.timedelta(hours=2)
+        time_window_end = current_time + EVENT_LOOKAHEAD
 
         # Storsalen
         # Get calendar events
