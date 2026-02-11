@@ -1,0 +1,50 @@
+{
+  "google": {
+    "key_file": "service-account-key.json",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly"
+    ],
+    "calendar_id": "YOUR_CALENDAR_ID",
+    "pray_id": "YOUR_PRAY_ID"
+  },
+  "sr201": {
+    "ip": "192.168.100.100",
+    "port": 6722,
+    "relay": 1,
+    "timeout_seconds": 5
+  },
+  "mill": {
+    "ip": "192.168.0.173",
+    "temp_type": "Normal",
+    "heat_on_temp": 21,
+    "heat_off_temp": 17
+  },
+  "glamox": {
+    "room_name": "Storsalen",
+    "api_url": "https://api-1.glamoxheating.com/client-api",
+    "heat_on_temp": 21,
+    "heat_off_temp": 17
+  },
+  "logging": {
+    "console": {
+      "enabled": true,
+      "level": "INFO"
+    },
+    "file": {
+      "enabled": false,
+      "level": "DEBUG",
+      "path": "BedehusTemperaturProgram.log",
+      "max_bytes": 1024,
+      "backup_count": 31
+    },
+    "syslog": {
+      "enabled": true,
+      "level": "INFO",
+      "address": "10.253.4.1:5515"
+    }
+  },
+  "state_db": {
+    "path": "config/relay_state.db"
+  },
+  "time_window_hours": 2
+}
