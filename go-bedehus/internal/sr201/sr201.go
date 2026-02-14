@@ -45,10 +45,11 @@ func (c *Client) CheckStatus() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if len(resp) == 0 {
-		return false, fmt.Errorf("empty status response")
+	idx := c.Relay - 1
+	if idx < 0 || idx >= len(resp) {
+		return false, fmt.Errorf("relay %d out of range (response length %d)", c.Relay, len(resp))
 	}
-	return resp[0] == '1', nil
+	return resp[idx] == '1', nil
 }
 
 func (c *Client) CloseRelay() error {

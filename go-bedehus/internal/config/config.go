@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -100,7 +101,7 @@ func DefaultConfig() Config {
 				Enabled:     false,
 				Level:       "DEBUG",
 				Path:        "BedehusTemperaturProgram.log",
-				MaxBytes:    1024,
+				MaxBytes:    10 * 1024 * 1024,
 				BackupCount: 31,
 			},
 			Syslog: LogSinkConfig{Enabled: true, Level: "INFO"},
@@ -128,6 +129,37 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (c Config) Validate() error {
+	var errs []error
+
+	if c.Google.KeyFile == "" {
+		errs = append(errs, errors.New("google.key_file is required"))
+	}
+	if c.Google.CalendarID == "" {
+		errs = append(errs, errors.New("google.calendar_id is required"))
+	}
+	if c.Google.PrayID == "" {
+		errs = append(errs, errors.New("google.pray_id is required"))
+	}
+	if c.SR201.IP == "" {
+		errs = append(errs, errors.New("sr201.ip is required"))
+	}
+	if c.SR201.Relay < 1 || c.SR201.Relay > 8 {
+		errs = append(errs, fmt.Errorf("sr201.relay must be 1-8, got %d", c.SR201.Relay))
+	}
+	if c.Mill.Enabled && c.Mill.IP == "" {
+		errs = append(errs, errors.New("mill.ip is required when mill is enabled"))
+	}
+	if c.Glamox.Enabled && c.Glamox.RoomName == "" {
+		errs = append(errs, errors.New("glamox.room_name is required when glamox is enabled"))
+	}
+	if c.StateDB.Path == "" {
+		errs = append(errs, errors.New("state_db.path is required"))
+	}
+
+	return errors.Join(errs...)
 }
 
 func ResolvePath(baseDir, path string) string {

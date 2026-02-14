@@ -37,7 +37,7 @@
       "enabled": false,
       "level": "DEBUG",
       "path": "BedehusTemperaturProgram.log",
-      "max_bytes": 1024,
+      "max_bytes": 10485760,
       "backup_count": 31
     },
     "syslog": {
