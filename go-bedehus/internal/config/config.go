@@ -92,8 +92,8 @@ func DefaultConfig() Config {
 		},
 		Glamox: GlamoxConfig{
 			Enabled:     true,
-			HeatOnTemp:  21,
-			HeatOffTemp: 17,
+			HeatOnTemp:  24,
+			HeatOffTemp: 18,
 		},
 		Logging: LoggingConfig{
 			Console: LogSinkConfig{Enabled: true, Level: "INFO"},
@@ -106,7 +106,7 @@ func DefaultConfig() Config {
 			},
 			Syslog: LogSinkConfig{Enabled: true, Level: "INFO"},
 		},
-		TimeWindowHours: 2,
+		TimeWindowHours: 5,
 	}
 }
 
