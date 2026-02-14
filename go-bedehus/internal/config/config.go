@@ -25,10 +25,11 @@ type GoogleConfig struct {
 }
 
 type SR201Config struct {
-	IP             string `json:"ip"`
-	Port           int    `json:"port"`
-	Relay          int    `json:"relay"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
+	IP                string `json:"ip"`
+	Port              int    `json:"port"`
+	Relay             int    `json:"relay"`
+	TimeoutSeconds    int    `json:"timeout_seconds"`
+	RelayPauseSeconds int    `json:"relay_pause_seconds"`
 }
 
 type MillConfig struct {
@@ -77,9 +78,10 @@ func DefaultConfig() Config {
 			Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"},
 		},
 		SR201: SR201Config{
-			Port:           6722,
-			Relay:          1,
-			TimeoutSeconds: 5,
+			Port:              6722,
+			Relay:             1,
+			TimeoutSeconds:    5,
+			RelayPauseSeconds: 5,
 		},
 		Mill: MillConfig{
 			Enabled:     true,
@@ -120,6 +122,9 @@ func Load(path string) (Config, error) {
 
 	if cfg.TimeWindowHours <= 0 {
 		cfg.TimeWindowHours = 2
+	}
+	if cfg.SR201.RelayPauseSeconds <= 0 {
+		cfg.SR201.RelayPauseSeconds = 5
 	}
 
 	return cfg, nil
