@@ -11,7 +11,8 @@
     "ip": "192.168.100.100",
     "port": 6722,
     "relay": 1,
-    "timeout_seconds": 5
+    "timeout_seconds": 5,
+    "relay_pause_seconds": 5
   },
   "mill": {
     "enabled": true,
