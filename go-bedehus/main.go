@@ -16,6 +16,7 @@ import (
 	"go-bedehus/internal/mill"
 	"go-bedehus/internal/sr201"
 	"go-bedehus/internal/state"
+
 	"google.golang.org/api/calendar/v3"
 )
 
@@ -167,25 +168,23 @@ func setupLogger(baseDir string, cfg config.Config) (*logging.Logger, func()) {
 }
 
 func processEvents(logger *logging.Logger, events []*calendar.Event) bool {
-	heatOn := false
-	if len(events) > 0 {
-		logger.Infof("Relay turned ON for upcoming events: %d", len(events))
-		for _, event := range events {
-			start := event.Start.DateTime
-			if start == "" {
-				start = event.Start.Date
-			}
-			summary := event.Summary
-			if strings.TrimSpace(summary) == "" {
-				summary = "No Summary Available"
-			}
-			logger.Infof("Found event start: %s Summary: %s", start, summary)
-		}
-		heatOn = true
-	} else {
-		logger.Infof("Relay turned OFF (no upcoming events)")
+	if len(events) == 0 {
+		logger.Infof("No upcoming events found; heat not required")
+		return false
 	}
-	return heatOn
+	logger.Infof("Found %d upcoming event(s); heat required", len(events))
+	for _, event := range events {
+		start := event.Start.DateTime
+		if start == "" {
+			start = event.Start.Date
+		}
+		summary := event.Summary
+		if strings.TrimSpace(summary) == "" {
+			summary = "No Summary Available"
+		}
+		logger.Infof("  Event start: %s Summary: %s", start, summary)
+	}
+	return true
 }
 
 func checkRelayState(logger *logging.Logger, store *state.Store, cfg config.Config, glamoxClient *glamox.Client, heatOn bool) {
@@ -209,13 +208,17 @@ func checkRelayState(logger *logging.Logger, store *state.Store, cfg config.Conf
 	heatLogic(logger, cfg, glamoxClient, heatOn, lastState, relayStatus)
 }
 
-func getRelayStatus(cfg config.Config) (bool, error) {
-	client := sr201.Client{
+func newSR201Client(cfg config.Config) sr201.Client {
+	return sr201.Client{
 		IP:      cfg.SR201.IP,
 		Port:    cfg.SR201.Port,
 		Relay:   cfg.SR201.Relay,
 		Timeout: time.Duration(cfg.SR201.TimeoutSeconds) * time.Second,
 	}
+}
+
+func getRelayStatus(cfg config.Config) (bool, error) {
+	client := newSR201Client(cfg)
 	return client.CheckStatus()
 }
 
@@ -250,42 +253,34 @@ func heatLogic(logger *logging.Logger, cfg config.Config, glamoxClient *glamox.C
 }
 
 func relayHeatOn(cfg config.Config) error {
-	client := sr201.Client{
-		IP:      cfg.SR201.IP,
-		Port:    cfg.SR201.Port,
-		Relay:   cfg.SR201.Relay,
-		Timeout: time.Duration(cfg.SR201.TimeoutSeconds) * time.Second,
-	}
+	client := newSR201Client(cfg)
+	pause := time.Duration(cfg.SR201.RelayPauseSeconds) * time.Second
 	if err := client.CloseRelay(); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(pause)
 	if err := client.OpenRelay(); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(pause)
 	return client.CloseRelay()
 }
 
 func relayHeatOff(cfg config.Config) error {
-	client := sr201.Client{
-		IP:      cfg.SR201.IP,
-		Port:    cfg.SR201.Port,
-		Relay:   cfg.SR201.Relay,
-		Timeout: time.Duration(cfg.SR201.TimeoutSeconds) * time.Second,
-	}
+	client := newSR201Client(cfg)
+	pause := time.Duration(cfg.SR201.RelayPauseSeconds) * time.Second
 	if err := client.CloseRelay(); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(pause)
 	if err := client.OpenRelay(); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(pause)
 	if err := client.CloseRelay(); err != nil {
 		return err
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(pause)
 	return client.OpenRelay()
 }
 
