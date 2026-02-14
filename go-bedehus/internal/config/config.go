@@ -32,6 +32,7 @@ type SR201Config struct {
 }
 
 type MillConfig struct {
+	Enabled     bool    `json:"enabled"`
 	IP          string  `json:"ip"`
 	TempType    string  `json:"temp_type"`
 	HeatOnTemp  float64 `json:"heat_on_temp"`
@@ -39,6 +40,7 @@ type MillConfig struct {
 }
 
 type GlamoxConfig struct {
+	Enabled     bool    `json:"enabled"`
 	RoomName    string  `json:"room_name"`
 	APIURL      string  `json:"api_url"`
 	HeatOnTemp  float64 `json:"heat_on_temp"`
@@ -80,11 +82,13 @@ func DefaultConfig() Config {
 			TimeoutSeconds: 5,
 		},
 		Mill: MillConfig{
+			Enabled:     true,
 			TempType:    "Normal",
 			HeatOnTemp:  21,
 			HeatOffTemp: 17,
 		},
 		Glamox: GlamoxConfig{
+			Enabled:     true,
 			HeatOnTemp:  21,
 			HeatOffTemp: 17,
 		},
