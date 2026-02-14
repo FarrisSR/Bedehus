@@ -14,12 +14,14 @@
     "timeout_seconds": 5
   },
   "mill": {
+    "enabled": true,
     "ip": "192.168.0.173",
     "temp_type": "Normal",
     "heat_on_temp": 21,
     "heat_off_temp": 17
   },
   "glamox": {
+    "enabled": true,
     "room_name": "Storsalen",
     "api_url": "https://api-1.glamoxheating.com/client-api",
     "heat_on_temp": 21,

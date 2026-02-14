@@ -58,13 +58,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	glamoxClient, err := glamox.NewClient(baseDir, cfg.Glamox.RoomName, cfg.Glamox.APIURL)
-	if err != nil {
-		logger.Errorf("Error setting up Glamox client: %v", err)
-		os.Exit(1)
+	var glamoxClient *glamox.Client
+	if cfg.Glamox.Enabled {
+		glamoxClient, err = glamox.NewClient(baseDir, cfg.Glamox.RoomName, cfg.Glamox.APIURL)
+		if err != nil {
+			logger.Errorf("Error setting up Glamox client: %v", err)
+			os.Exit(1)
+		}
 	}
 
-	millController := mill.New(cfg.Mill.IP, cfg.Mill.TempType)
+	var millController *mill.Controller
+	if cfg.Mill.Enabled {
+		millController = mill.New(cfg.Mill.IP, cfg.Mill.TempType)
+	}
 
 	currentTime := time.Now().UTC()
 	timeWindowEnd := currentTime.Add(time.Duration(cfg.TimeWindowHours) * time.Hour)
@@ -284,6 +290,10 @@ func relayHeatOff(cfg config.Config) error {
 }
 
 func updateStorsalenGlamox(logger *logging.Logger, client *glamox.Client, temp float64) {
+	if client == nil {
+		logger.Infof("Glamox disabled; skipping update.")
+		return
+	}
 	if _, err := client.SetTemperature(temp); err != nil {
 		logger.Errorf("Error setting Glamox temperature: %v", err)
 		return
@@ -297,6 +307,10 @@ func updateStorsalenGlamox(logger *logging.Logger, client *glamox.Client, temp f
 }
 
 func checkUpdatePray(logger *logging.Logger, controller *mill.Controller, cfg config.Config, heatOn bool) {
+	if controller == nil {
+		logger.Infof("Mill disabled; skipping PRAY update.")
+		return
+	}
 	var target float64
 	if heatOn {
 		logger.Infof("Set PRAY heat to %.0fC.", cfg.Mill.HeatOnTemp)
