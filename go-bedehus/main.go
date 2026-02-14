@@ -21,6 +21,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	configPath := flag.String("config", "config/config.json", "path to config.json")
 	flag.Parse()
 
@@ -37,8 +44,11 @@ func main() {
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	logger, closeLoggers := setupLogger(baseDir, cfg)
@@ -47,24 +57,21 @@ func main() {
 	statePath := config.ResolvePath(baseDir, cfg.StateDB.Path)
 	store, err := state.Open(statePath)
 	if err != nil {
-		logger.Errorf("Error opening state DB: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("error opening state DB: %w", err)
 	}
 	defer store.Close()
 
 	ctx := context.Background()
 	service, err := gcal.NewService(ctx, config.ResolvePath(baseDir, cfg.Google.KeyFile), cfg.Google.Scopes)
 	if err != nil {
-		logger.Errorf("Error setting up Google Calendar client: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("error setting up Google Calendar client: %w", err)
 	}
 
 	var glamoxClient *glamox.Client
 	if cfg.Glamox.Enabled {
 		glamoxClient, err = glamox.NewClient(baseDir, cfg.Glamox.RoomName, cfg.Glamox.APIURL)
 		if err != nil {
-			logger.Errorf("Error setting up Glamox client: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("error setting up Glamox client: %w", err)
 		}
 	}
 
@@ -79,8 +86,7 @@ func main() {
 	// Storsalen
 	events, err := gcal.EventsInWindow(service, cfg.Google.CalendarID, currentTime, timeWindowEnd)
 	if err != nil {
-		logger.Errorf("Error retrieving calendar events: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("error retrieving Storsalen calendar events: %w", err)
 	}
 
 	heatOn := processEvents(logger, events)
@@ -89,12 +95,13 @@ func main() {
 	// Bønnerom
 	events, err = gcal.EventsInWindow(service, cfg.Google.PrayID, currentTime, timeWindowEnd)
 	if err != nil {
-		logger.Errorf("Error retrieving calendar events: %v", err)
-		os.Exit(1)
+		return fmt.Errorf("error retrieving Bønnerom calendar events: %w", err)
 	}
 
 	prayHeatOn := processEvents(logger, events)
 	checkUpdatePray(logger, millController, cfg, prayHeatOn)
+
+	return nil
 }
 
 func resolveBaseDir() string {
@@ -120,7 +127,10 @@ func setupLogger(baseDir string, cfg config.Config) (*logging.Logger, func()) {
 	hostname, _ := os.Hostname()
 
 	if cfg.Logging.Console.Enabled {
-		level, _ := logging.ParseLevel(cfg.Logging.Console.Level)
+		level, err := logging.ParseLevel(cfg.Logging.Console.Level)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: console log level %q invalid, defaulting to INFO\n", cfg.Logging.Console.Level)
+		}
 		sinks = append(sinks, logging.Sink{
 			MinLevel: level,
 			Writer:   os.Stdout,
@@ -129,10 +139,15 @@ func setupLogger(baseDir string, cfg config.Config) (*logging.Logger, func()) {
 	}
 
 	if cfg.Logging.File.Enabled {
-		level, _ := logging.ParseLevel(cfg.Logging.File.Level)
+		level, err := logging.ParseLevel(cfg.Logging.File.Level)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: file log level %q invalid, defaulting to INFO\n", cfg.Logging.File.Level)
+		}
 		path := config.ResolvePath(baseDir, cfg.Logging.File.Path)
 		writer, err := logging.NewRotatingFileWriter(path, cfg.Logging.File.MaxBytes, cfg.Logging.File.BackupCount)
-		if err == nil {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to open log file %s: %v\n", path, err)
+		} else {
 			sinks = append(sinks, logging.Sink{
 				MinLevel: level,
 				Writer:   writer,
@@ -143,9 +158,14 @@ func setupLogger(baseDir string, cfg config.Config) (*logging.Logger, func()) {
 	}
 
 	if cfg.Logging.Syslog.Enabled {
-		level, _ := logging.ParseLevel(cfg.Logging.Syslog.Level)
+		level, err := logging.ParseLevel(cfg.Logging.Syslog.Level)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: syslog log level %q invalid, defaulting to INFO\n", cfg.Logging.Syslog.Level)
+		}
 		writer, err := logging.NewSyslogWriter(cfg.Logging.Syslog.Address)
-		if err == nil {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to connect to syslog at %s: %v\n", cfg.Logging.Syslog.Address, err)
+		} else {
 			sinks = append(sinks, logging.Sink{
 				MinLevel: level,
 				Writer:   writer,

@@ -18,6 +18,7 @@ type Level int
 const (
 	LevelDebug Level = iota
 	LevelInfo
+	LevelWarn
 	LevelError
 )
 
@@ -27,6 +28,8 @@ func ParseLevel(raw string) (Level, error) {
 		return LevelDebug, nil
 	case "INFO":
 		return LevelInfo, nil
+	case "WARN", "WARNING":
+		return LevelWarn, nil
 	case "ERROR":
 		return LevelError, nil
 	case "":
@@ -73,6 +76,10 @@ func (l *Logger) Infof(format string, args ...any) {
 	l.log(LevelInfo, fmt.Sprintf(format, args...))
 }
 
+func (l *Logger) Warnf(format string, args ...any) {
+	l.log(LevelWarn, fmt.Sprintf(format, args...))
+}
+
 func (l *Logger) Errorf(format string, args ...any) {
 	l.log(LevelError, fmt.Sprintf(format, args...))
 }
@@ -111,6 +118,8 @@ func LevelString(level Level) string {
 		return "DEBUG"
 	case LevelInfo:
 		return "INFO"
+	case LevelWarn:
+		return "WARN"
 	case LevelError:
 		return "ERROR"
 	default:

@@ -95,7 +95,7 @@ func LoadSecrets(baseDir, apiOverride string) (Secrets, error) {
 			APIURL:    strings.TrimRight(apiURL, "/"),
 		}, nil
 	}
-	return Secrets{}, errors.New("fant ingen secrets.json")
+	return Secrets{}, errors.New("no secrets.json found in expected locations")
 }
 
 func readString(raw map[string]any, key string) string {
@@ -184,7 +184,7 @@ func (c *Client) ensureRoomID() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("fant ikke rom '%s' i Glamox-appen", c.roomName)
+	return fmt.Errorf("room %q not found in Glamox API", c.roomName)
 }
 
 func (c *Client) GetRoomStatus() (map[string]any, error) {
@@ -205,7 +205,7 @@ func (c *Client) GetRoomStatus() (map[string]any, error) {
 			}, nil
 		}
 	}
-	return nil, fmt.Errorf("room id %d ikke funnet", c.roomID)
+	return nil, fmt.Errorf("room id %d not found", c.roomID)
 }
 
 func (c *Client) SetTemperature(value float64) (map[string]any, error) {
