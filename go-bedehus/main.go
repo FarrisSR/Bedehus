@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,16 +54,32 @@ func run() error {
 
 	logger, closeLoggers := setupLogger(baseDir, cfg)
 	defer closeLoggers()
+	timing := newStepTiming(cfg.Timing.Enabled)
+	defer func() {
+		if timing.Enabled {
+			logger.Infof("Timing summary: %s", timing.Summary())
+		}
+	}()
 
 	statePath := config.ResolvePath(baseDir, cfg.StateDB.Path)
-	store, err := state.Open(statePath)
+	var store *state.Store
+	err = timing.Track("state_db_open", func() error {
+		var openErr error
+		store, openErr = state.Open(statePath)
+		return openErr
+	})
 	if err != nil {
 		return fmt.Errorf("error opening state DB: %w", err)
 	}
 	defer store.Close()
 
 	ctx := context.Background()
-	service, err := gcal.NewService(ctx, config.ResolvePath(baseDir, cfg.Google.KeyFile), cfg.Google.Scopes)
+	var service *calendar.Service
+	err = timing.Track("google_client", func() error {
+		var svcErr error
+		service, svcErr = gcal.NewService(ctx, config.ResolvePath(baseDir, cfg.Google.KeyFile), cfg.Google.Scopes)
+		return svcErr
+	})
 	if err != nil {
 		return fmt.Errorf("error setting up Google Calendar client: %w", err)
 	}
@@ -84,24 +101,117 @@ func run() error {
 	timeWindowEnd := currentTime.Add(time.Duration(cfg.TimeWindowHours) * time.Hour)
 
 	// Storsalen
-	events, err := gcal.EventsInWindow(service, cfg.Google.CalendarID, currentTime, timeWindowEnd)
+	var events []*calendar.Event
+	err = timing.Track("calendar_storsalen", func() error {
+		var eventsErr error
+		events, eventsErr = getEventsWithFallback(logger, store, cfg, service, cfg.Google.CalendarID, currentTime, timeWindowEnd)
+		return eventsErr
+	})
 	if err != nil {
 		return fmt.Errorf("error retrieving Storsalen calendar events: %w", err)
 	}
 
 	heatOn := processEvents(logger, events)
-	checkRelayState(logger, store, cfg, glamoxClient, heatOn)
+	var relayResult relayOutcome
+	_ = timing.Track("sr201_logic", func() error {
+		relayResult = checkRelayState(logger, store, cfg, heatOn)
+		return nil
+	})
+	_ = timing.Track("glamox_logic", func() error {
+		if relayResult.UpdateGlamox {
+			updateStorsalenGlamox(logger, glamoxClient, relayResult.GlamoxTemp)
+		}
+		return nil
+	})
 
 	// Bønnerom
-	events, err = gcal.EventsInWindow(service, cfg.Google.PrayID, currentTime, timeWindowEnd)
+	err = timing.Track("calendar_pray", func() error {
+		var eventsErr error
+		events, eventsErr = getEventsWithFallback(logger, store, cfg, service, cfg.Google.PrayID, currentTime, timeWindowEnd)
+		return eventsErr
+	})
 	if err != nil {
 		return fmt.Errorf("error retrieving Bønnerom calendar events: %w", err)
 	}
 
 	prayHeatOn := processEvents(logger, events)
-	checkUpdatePray(logger, millController, cfg, prayHeatOn)
+	_ = timing.Track("mill_logic", func() error {
+		checkUpdatePray(logger, millController, cfg, prayHeatOn)
+		return nil
+	})
 
 	return nil
+}
+
+type stepTiming struct {
+	Name     string
+	Duration time.Duration
+}
+
+type stepTimings struct {
+	Enabled bool
+	Entries []stepTiming
+}
+
+func newStepTiming(enabled bool) *stepTimings {
+	return &stepTimings{Enabled: enabled}
+}
+
+func (s *stepTimings) Track(name string, fn func() error) error {
+	if !s.Enabled {
+		return fn()
+	}
+	start := time.Now()
+	err := fn()
+	s.Entries = append(s.Entries, stepTiming{Name: name, Duration: time.Since(start)})
+	return err
+}
+
+func (s *stepTimings) Summary() string {
+	if len(s.Entries) == 0 {
+		return "no steps recorded"
+	}
+	entries := make([]stepTiming, len(s.Entries))
+	copy(entries, s.Entries)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Duration > entries[j].Duration
+	})
+
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		parts = append(parts, fmt.Sprintf("%s=%.1fms", entry.Name, float64(entry.Duration)/float64(time.Millisecond)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func getEventsWithFallback(
+	logger *logging.Logger,
+	store *state.Store,
+	cfg config.Config,
+	service *calendar.Service,
+	calendarID string,
+	start time.Time,
+	end time.Time,
+) ([]*calendar.Event, error) {
+	events, err := gcal.EventsInWindow(service, calendarID, start, end)
+	if err == nil {
+		if saveErr := store.SaveCalendarCache(calendarID, start, end, events); saveErr != nil {
+			logger.Warnf("Failed to save calendar cache for %s: %v", calendarID, saveErr)
+		}
+		return events, nil
+	}
+
+	logger.Errorf("Google Calendar request failed for %s: %v", calendarID, err)
+	maxAge := time.Duration(cfg.Cache.GoogleMaxAgeHours) * time.Hour
+	cachedEvents, ok, cacheErr := store.GetCachedEvents(calendarID, start, maxAge)
+	if cacheErr != nil {
+		return nil, fmt.Errorf("calendar request failed and cache read failed: %w (google error: %v)", cacheErr, err)
+	}
+	if !ok {
+		return nil, err
+	}
+	logger.Warnf("Using cached calendar data for %s (max age %dh)", calendarID, cfg.Cache.GoogleMaxAgeHours)
+	return cachedEvents, nil
 }
 
 func resolveBaseDir() string {
@@ -207,7 +317,12 @@ func processEvents(logger *logging.Logger, events []*calendar.Event) bool {
 	return true
 }
 
-func checkRelayState(logger *logging.Logger, store *state.Store, cfg config.Config, glamoxClient *glamox.Client, heatOn bool) {
+type relayOutcome struct {
+	UpdateGlamox bool
+	GlamoxTemp   float64
+}
+
+func checkRelayState(logger *logging.Logger, store *state.Store, cfg config.Config, heatOn bool) relayOutcome {
 	lastState, err := store.GetRelayState()
 	if err != nil {
 		logger.Errorf("Error reading relay state: %v", err)
@@ -215,17 +330,32 @@ func checkRelayState(logger *logging.Logger, store *state.Store, cfg config.Conf
 	}
 	logger.Infof("Last state: %v", lastState)
 
+	if !cfg.SR201.Enabled {
+		logger.Infof("SR201 disabled; skipping relay operations.")
+		if err := store.SetRelayState(heatOn); err != nil {
+			logger.Errorf("Error saving relay state: %v", err)
+		}
+		if heatOn != lastState {
+			logger.Infof("Change of state detected")
+			if heatOn {
+				return relayOutcome{UpdateGlamox: true, GlamoxTemp: cfg.Glamox.HeatOnTemp}
+			}
+			return relayOutcome{UpdateGlamox: true, GlamoxTemp: cfg.Glamox.HeatOffTemp}
+		}
+		return relayOutcome{}
+	}
+
 	relayStatus, err := getRelayStatus(cfg)
 	if err != nil {
 		logger.Errorf("Error interacting with SR201: %v", err)
-		return
+		return relayOutcome{}
 	}
 
 	if err := store.SetRelayState(heatOn); err != nil {
 		logger.Errorf("Error saving relay state: %v", err)
 	}
 
-	heatLogic(logger, cfg, glamoxClient, heatOn, lastState, relayStatus)
+	return heatLogic(logger, cfg, heatOn, lastState, relayStatus)
 }
 
 func newSR201Client(cfg config.Config) sr201.Client {
@@ -242,7 +372,7 @@ func getRelayStatus(cfg config.Config) (bool, error) {
 	return client.CheckStatus()
 }
 
-func heatLogic(logger *logging.Logger, cfg config.Config, glamoxClient *glamox.Client, heatOn bool, lastState bool, relayStatus bool) {
+func heatLogic(logger *logging.Logger, cfg config.Config, heatOn bool, lastState bool, relayStatus bool) relayOutcome {
 	if heatOn != lastState {
 		logger.Infof("Change of state detected")
 	}
@@ -251,25 +381,26 @@ func heatLogic(logger *logging.Logger, cfg config.Config, glamoxClient *glamox.C
 			logger.Infof("Turning heat on.")
 			if err := relayHeatOn(cfg); err != nil {
 				logger.Errorf("Error turning heat on: %v", err)
-				return
+				return relayOutcome{}
 			}
-			updateStorsalenGlamox(logger, glamoxClient, cfg.Glamox.HeatOnTemp)
+			return relayOutcome{UpdateGlamox: true, GlamoxTemp: cfg.Glamox.HeatOnTemp}
 		} else {
 			logger.Infof("Relay is already on, not turning heat on.")
 		}
-		return
+		return relayOutcome{}
 	}
 
 	if relayStatus {
 		logger.Infof("Turning heat off.")
 		if err := relayHeatOff(cfg); err != nil {
 			logger.Errorf("Error turning heat off: %v", err)
-			return
+			return relayOutcome{}
 		}
-		updateStorsalenGlamox(logger, glamoxClient, cfg.Glamox.HeatOffTemp)
+		return relayOutcome{UpdateGlamox: true, GlamoxTemp: cfg.Glamox.HeatOffTemp}
 	} else {
 		logger.Infof("Relay is already off, not turning heat off.")
 	}
+	return relayOutcome{}
 }
 
 func relayHeatOn(cfg config.Config) error {

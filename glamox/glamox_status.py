@@ -34,6 +34,8 @@ headers = {"Authorization": f"Bearer {token}"}
 resp = requests.get(f"{API_URL}/rest/v1/content/", headers=headers, timeout=20)
 resp.raise_for_status()
 data = resp.json()
+print("== Data ==")
+print(data)
 
 print("== Romstatus ==")
 for room in data.get("rooms", []):

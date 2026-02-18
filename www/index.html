@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Temperaturlogg</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; max-width: 800px; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+    th { background: #f5f5f5; }
+    img { max-width: 100%; height: auto; border: 1px solid #ddd; }
+  </style>
+  <meta http-equiv="refresh" content="300">
+</head>
+<body>
+  <h1>Temperaturlogg (siste 48 timer)</h1>
+  <p>Siden oppdateres hver time via cron.</p>
+  <img src="graphs/last_48h.png" alt="Temperatur vs target">
+  <h2>Temperatur (siste uke)</h2><img src="graphs/last_7d.png" alt="Temperatur (siste uke)"><h2>Temperatur (siste måned)</h2><img src="graphs/last_30d.png" alt="Temperatur (siste måned)">
+  <h2>Siste målinger</h2>
+  <table>
+    <thead><tr><th>Kilde</th><th>Rom</th><th>Målt (C)</th><th>Target (C)</th><th>Tid (UTC)</th></tr></thead>
+    <tbody>
+    <tr><td>glamox</td><td>Storsalen</td><td>17.9</td><td>18.0</td><td>2025-12-06T17:45:02.442895</td></tr><tr><td>mill</td><td>Bønnerom</td><td>17.0</td><td>17.0</td><td>2025-12-06T17:45:02.674636</td></tr><tr><td>yr</td><td>Bjørkelangen ute</td><td>3.2</td><td>-</td><td>2025-12-06T17:00:00</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

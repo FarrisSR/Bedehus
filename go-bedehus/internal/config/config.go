@@ -13,6 +13,8 @@ type Config struct {
 	SR201           SR201Config   `json:"sr201"`
 	Mill            MillConfig    `json:"mill"`
 	Glamox          GlamoxConfig  `json:"glamox"`
+	Cache           CacheConfig   `json:"cache"`
+	Timing          TimingConfig  `json:"timing"`
 	Logging         LoggingConfig `json:"logging"`
 	StateDB         StateDBConfig `json:"state_db"`
 	TimeWindowHours int           `json:"time_window_hours"`
@@ -26,6 +28,7 @@ type GoogleConfig struct {
 }
 
 type SR201Config struct {
+	Enabled           bool   `json:"enabled"`
 	IP                string `json:"ip"`
 	Port              int    `json:"port"`
 	Relay             int    `json:"relay"`
@@ -49,10 +52,19 @@ type GlamoxConfig struct {
 	HeatOffTemp float64 `json:"heat_off_temp"`
 }
 
+type CacheConfig struct {
+	GoogleMaxAgeHours int `json:"google_max_age_hours"`
+}
+
+type TimingConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 type LoggingConfig struct {
-	Console LogSinkConfig `json:"console"`
-	File    LogFileConfig `json:"file"`
-	Syslog  LogSinkConfig `json:"syslog"`
+	PythonConfigFile string        `json:"python_config_file"`
+	Console          LogSinkConfig `json:"console"`
+	File             LogFileConfig `json:"file"`
+	Syslog           LogSinkConfig `json:"syslog"`
 }
 
 type LogSinkConfig struct {
@@ -79,6 +91,7 @@ func DefaultConfig() Config {
 			Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"},
 		},
 		SR201: SR201Config{
+			Enabled:           false,
 			Port:              6722,
 			Relay:             1,
 			TimeoutSeconds:    5,
@@ -95,8 +108,15 @@ func DefaultConfig() Config {
 			HeatOnTemp:  24,
 			HeatOffTemp: 18,
 		},
+		Cache: CacheConfig{
+			GoogleMaxAgeHours: 24,
+		},
+		Timing: TimingConfig{
+			Enabled: false,
+		},
 		Logging: LoggingConfig{
-			Console: LogSinkConfig{Enabled: true, Level: "INFO"},
+			PythonConfigFile: "logging.config",
+			Console:          LogSinkConfig{Enabled: true, Level: "INFO"},
 			File: LogFileConfig{
 				Enabled:     false,
 				Level:       "DEBUG",
@@ -127,6 +147,12 @@ func Load(path string) (Config, error) {
 	if cfg.SR201.RelayPauseSeconds <= 0 {
 		cfg.SR201.RelayPauseSeconds = 5
 	}
+	if cfg.Cache.GoogleMaxAgeHours <= 0 {
+		cfg.Cache.GoogleMaxAgeHours = 24
+	}
+	if cfg.Logging.PythonConfigFile == "" {
+		cfg.Logging.PythonConfigFile = "logging.config"
+	}
 
 	return cfg, nil
 }
@@ -143,11 +169,13 @@ func (c Config) Validate() error {
 	if c.Google.PrayID == "" {
 		errs = append(errs, errors.New("google.pray_id is required"))
 	}
-	if c.SR201.IP == "" {
-		errs = append(errs, errors.New("sr201.ip is required"))
-	}
-	if c.SR201.Relay < 1 || c.SR201.Relay > 8 {
-		errs = append(errs, fmt.Errorf("sr201.relay must be 1-8, got %d", c.SR201.Relay))
+	if c.SR201.Enabled {
+		if c.SR201.IP == "" {
+			errs = append(errs, errors.New("sr201.ip is required when sr201 is enabled"))
+		}
+		if c.SR201.Relay < 1 || c.SR201.Relay > 8 {
+			errs = append(errs, fmt.Errorf("sr201.relay must be 1-8 when sr201 is enabled, got %d", c.SR201.Relay))
+		}
 	}
 	if c.Mill.Enabled && c.Mill.IP == "" {
 		errs = append(errs, errors.New("mill.ip is required when mill is enabled"))

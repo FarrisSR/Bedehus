@@ -1,271 +1,487 @@
-import os
-import socket
+import argparse
 import datetime
-import time
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from mill_controller.mill_controller import mill_controller
-from glamox.glamox_controller import glamox_controller
-from sr201.sr201class import Sr201
-from mock_sr201class import MockSr201  # Import the mock class
+import json
 import logging
 import logging.config
-from logging.handlers import SysLogHandler
+import os
+import socket
+import sqlite3
+import sys
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# Configuration variables
-USE_MOCK_SR201 = False  # Set to False when using real SR201
-KEY_FILE = 'service-account-key.json'
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-SR201_IP = '192.168.100.100'
-CALENDAR_ID = '84ansm753q4ru2mjc9952nel7g@group.calendar.google.com'
-PRAY_ID = 'sivrsgorvkkohp6ofe7p65j4o0@group.calendar.google.com'
-LOG_FILE = "BedehusTemperaturProgram.log"
-RELAY_STATE_FILE = 'relay_state.txt'
-MILL_IP_ADDRESS = "192.168.0.173"
-MILL_TEMP_TYPE = "Normal"
-EVENT_LOOKAHEAD = datetime.timedelta(hours=5)
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+from glamox.glamox_controller import glamox_controller
+from mill_controller.mill_controller import mill_controller
+from sr201.sr201class import Sr201
+
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "google": {
+        "key_file": "service-account-key.json",
+        "scopes": ["https://www.googleapis.com/auth/calendar.readonly"],
+        "calendar_id": "",
+        "pray_id": "",
+    },
+    "sr201": {
+        "enabled": False,
+        "ip": "",
+        "relay": 1,
+        "relay_pause_seconds": 5,
+    },
+    "mill": {
+        "enabled": True,
+        "ip": "",
+        "temp_type": "Normal",
+        "heat_on_temp": 21,
+        "heat_off_temp": 17,
+    },
+    "glamox": {
+        "enabled": True,
+        "room_name": "Storsalen",
+        "heat_on_temp": 21,
+        "heat_off_temp": 17,
+    },
+    "logging": {
+        "python_config_file": "logging.config",
+    },
+    "state_db": {
+        "path": "config/relay_state.db",
+    },
+    "cache": {
+        "google_max_age_hours": 24,
+    },
+    "time_window_hours": 2,
+}
 
 
 class HostnameFilter(logging.Filter):
     hostname = socket.gethostname()
 
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         record.hostname = self.hostname
         return True
 
 
-def setup_logging():
-    logging.config.fileConfig(fname='logging.config',
-                              disable_existing_loggers=False)
-    #logger = logging.getLogger(__name__)
-    logger = logging.getLogger('bedehus-varme')
+def merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_dict(out[key], value)
+        else:
+            out[key] = value
+    return out
 
+
+def setup_logging(base_dir: Path, cfg: Dict[str, Any]) -> logging.Logger:
+    logger = logging.getLogger("bedehus-varme")
+    log_cfg = cfg.get("logging", {}).get("python_config_file", "logging.config")
+    log_path = resolve_path(base_dir, log_cfg)
+    try:
+        logging.config.fileConfig(fname=str(log_path), disable_existing_loggers=False)
+    except Exception:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+        )
+    logger.setLevel(logging.INFO)
+    logger.addFilter(HostnameFilter())
     return logger
 
 
-def initialize():
-    global logger
-    logger = setup_logging()
-    logger.setLevel(logging.INFO)
-    logger.addFilter(HostnameFilter())
-    # Any other initialization code can go here
-    # Change directory to the script's directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
+def resolve_path(base_dir: Path, raw_path: str) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return base_dir / path
 
 
-def setup_google_calendar_client():
+def load_config(base_dir: Path, config_path: str) -> Dict[str, Any]:
+    resolved = resolve_path(base_dir, config_path)
+    with resolved.open("r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    cfg = merge_dict(DEFAULT_CONFIG, loaded)
+
+    if cfg["time_window_hours"] <= 0:
+        cfg["time_window_hours"] = 2
+    if cfg["sr201"].get("relay_pause_seconds", 0) <= 0:
+        cfg["sr201"]["relay_pause_seconds"] = 5
+    if cfg["cache"].get("google_max_age_hours", 0) <= 0:
+        cfg["cache"]["google_max_age_hours"] = 24
+    if not cfg["logging"].get("python_config_file"):
+        cfg["logging"]["python_config_file"] = "logging.config"
+    return cfg
+
+
+@contextmanager
+def timed_step(logger: logging.Logger, timing: Dict[str, float], name: str):
+    start = time.perf_counter()
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            KEY_FILE, scopes=SCOPES)
-        service = build('calendar', 'v3',
-                        credentials=credentials, cache_discovery=False)
-        return service
-    except Exception as e:
-        logger.error(f"Error setting up Google Calendar client: {e}")
-        raise
+        yield
+    finally:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        timing[name] = elapsed_ms
+        logger.debug("Step %s took %.1f ms", name, elapsed_ms)
 
 
-def get_calendar_events(calendar, service, start_time, end_time):
-    try:
-        events_result = service.events().list(
-            calendarId=calendar, timeMin=start_time.isoformat() + 'Z',
-            timeMax=end_time.isoformat() + 'Z', singleEvents=True,
-            orderBy='startTime').execute()
-        return events_result.get('items', [])
-    except Exception as e:
-        logger.error(f"Error retrieving calendar events: {e}")
-        raise
+def setup_google_calendar_client(cfg: Dict[str, Any], base_dir: Path):
+    key_file = str(resolve_path(base_dir, cfg["google"]["key_file"]))
+    credentials = service_account.Credentials.from_service_account_file(
+        key_file,
+        scopes=cfg["google"]["scopes"],
+    )
+    return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
-def string_to_bool(relay_state_read_from_file: str):
-    """
-    This function takes a string representing a boolean value read from a file
-    and converts it to a corresponding boolean value.
-
-    Args:
-        relay_state_read_from_file (str): The string read from the file representing a boolean value.
-
-    Returns:
-        bool: The boolean value corresponding to the input string. Returns False if the input string is not 'True'.
-
-    Example:
-        string_to_bool("True") -> True
-        string_to_bool("False") -> False
-        string_to_bool("Invalid") -> False
-    """
-    return {"True": True, "False": False}.get(relay_state_read_from_file, False)
+def get_calendar_events(calendar_id: str, service, start_time: datetime.datetime, end_time: datetime.datetime) -> List[Dict[str, Any]]:
+    result = service.events().list(
+        calendarId=calendar_id,
+        timeMin=start_time.isoformat().replace("+00:00", "Z"),
+        timeMax=end_time.isoformat().replace("+00:00", "Z"),
+        singleEvents=True,
+        orderBy="startTime",
+    ).execute()
+    return result.get("items", [])
 
 
-def save_relay_state(state: bool):
-    # assert state in ["True", "False"], "Input must be 'True' or 'False'"
-    # Input validation replaced assert with an explicit check
-    # if state not in ["True", "False"]:
-    #    # Raising an exception for invalid input
-    #    # raise ValueError("Input must be 'True' or 'False'")
-
-    try:
-        with open(RELAY_STATE_FILE, 'w') as file:
-            file.write(str(state))
-    except Exception as e:
-        logger.error(f"Error saving relay state: {e}")
-
-
-def read_relay_state():
-    try:
-        with open(RELAY_STATE_FILE, 'r') as file:
-            return string_to_bool(file.read().strip())
-    except FileNotFoundError:
-        # Log that the state file does not exist; this is expected on the first run
-        logger.info("Relay state file not found. Assuming state is unknown.")
-        return False
-    except Exception as e:
-        # Log any other exceptions that occur while reading the file
-        logger.error(f"Error reading relay state: {e}")
+def process_events(logger: logging.Logger, events: List[Dict[str, Any]]) -> bool:
+    if not events:
+        logger.info("No upcoming events found; heat not required")
         return False
 
+    logger.info("Found %d upcoming event(s); heat required", len(events))
+    for event in events:
+        start = event.get("start", {}).get("dateTime", event.get("start", {}).get("date", "unknown"))
+        summary = event.get("summary", "No Summary Available")
+        logger.info("  Event start: %s Summary: %s", start, summary)
+    return True
 
-def update_storsalen_glamox(heat_on: bool):
-    ctrl = glamox_controller(room_name="Storsalen")
-    ctrl.set_temperature(24 if heat_on else 18)
-    status = ctrl.get_control_status()
-    logger.info(f"STORSALEN status: {status}")
+
+def open_state_db(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS calendar_cache (
+            calendar_id TEXT NOT NULL,
+            window_start TEXT NOT NULL,
+            window_end TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            events_json TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_calendar_cache_lookup
+        ON calendar_cache(calendar_id, fetched_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS relay_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            state INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    return conn
 
 
-def interact_with_sr201(action: str):
-    # Choose between real or mock SR201 based on the USE_MOCK_SR201 variable
-    sr201_class = MockSr201 if USE_MOCK_SR201 else Sr201
+def read_relay_state(conn: sqlite3.Connection) -> bool:
+    row = conn.execute("SELECT state FROM relay_state WHERE id = 1").fetchone()
+    if row is None:
+        return False
+    return bool(row[0])
+
+
+def save_relay_state(conn: sqlite3.Connection, state: bool) -> None:
+    conn.execute(
+        """
+        INSERT INTO relay_state (id, state, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at
+        """,
+        (1 if state else 0, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def save_calendar_cache(
+    conn: sqlite3.Connection,
+    calendar_id: str,
+    start_time: datetime.datetime,
+    end_time: datetime.datetime,
+    events: List[Dict[str, Any]],
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO calendar_cache (calendar_id, window_start, window_end, fetched_at, events_json)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            calendar_id,
+            start_time.isoformat(),
+            end_time.isoformat(),
+            datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            json.dumps(events),
+        ),
+    )
+    conn.commit()
+
+
+def load_calendar_cache(
+    conn: sqlite3.Connection,
+    calendar_id: str,
+    start_time: datetime.datetime,
+    max_age_hours: int,
+) -> Optional[List[Dict[str, Any]]]:
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=max_age_hours)
+    row = conn.execute(
+        """
+        SELECT events_json, fetched_at
+        FROM calendar_cache
+        WHERE calendar_id = ?
+          AND fetched_at >= ?
+          AND window_end >= ?
+        ORDER BY fetched_at DESC
+        LIMIT 1
+        """,
+        (calendar_id, cutoff.isoformat(), start_time.isoformat()),
+    ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row[0])
+
+
+def get_calendar_events_with_fallback(
+    logger: logging.Logger,
+    conn: sqlite3.Connection,
+    cfg: Dict[str, Any],
+    service,
+    calendar_id: str,
+    start_time: datetime.datetime,
+    end_time: datetime.datetime,
+) -> List[Dict[str, Any]]:
     try:
-        sr201 = sr201_class(SR201_IP)
-        if action == 'check_status':
-            status = sr201.do_return_status('status')
-            sr201.close()
-            return bool(int(status))
-        elif action in ['heat_on', 'heat_off']:
-            sr201.do_close('close:1')
-            time.sleep(5)
-            sr201.do_open('open:1')
-            time.sleep(5)
-            sr201.do_close('close:1')
-            if action == 'heat_off':
-                time.sleep(5)
-                sr201.do_open('open:1')
-            sr201.close()
-    except Exception as e:
-        logger.error(f"Error interacting with SR201: {e}")
-        raise
+        events = get_calendar_events(calendar_id, service, start_time, end_time)
+        save_calendar_cache(conn, calendar_id, start_time, end_time, events)
+        return events
+    except Exception as exc:
+        logger.error("Google API failed for %s: %s", calendar_id, exc)
+        max_age_hours = int(cfg["cache"].get("google_max_age_hours", 24))
+        cached_events = load_calendar_cache(conn, calendar_id, start_time, max_age_hours)
+        if cached_events is None:
+            raise
+        logger.warning(
+            "Using cached calendar data for %s (max age %sh)",
+            calendar_id,
+            max_age_hours,
+        )
+        return cached_events
 
 
-def process_events(events):
-    heat_on = False
-    if events:
-        logger.info(f"Relay turned ON for upcoming events: {len(events)}")
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            summary = event.get('summary', 'No Summary Available')
-            logger.info(f"Found event start: {start} Summary: {summary}")
-        heat_on = True
-    else:
-        logger.info("Relay turned OFF (no upcoming events)")
-    return heat_on
+def sr201_status(sr201_ip: str, relay: int) -> bool:
+    sr = Sr201(sr201_ip)
+    try:
+        states = sr.do_return_status("status")
+    finally:
+        sr.close()
+
+    if relay < 1 or relay > len(states):
+        raise RuntimeError(f"relay {relay} out of range (response length {len(states)})")
+    return states[relay - 1] == "1"
 
 
-# Define a function to check and interact with the SR201 device based on the heat_on parameter
-def check_relay_state(heat_on: bool):
-    # Get the last state of the relay
-    last_state = read_relay_state()
-    # Log the last state
-    logger.info("Last state: " + str(last_state))
-    # Get the current relay status by interacting with the SR201 device
-    relay_status = interact_with_sr201('check_status')
-    # Save the current relay status
-    save_relay_state(heat_on)
-
-    heat_logic(heat_on, last_state, relay_status)
+def sr201_heat_on(sr201_ip: str, relay: int, pause_seconds: int) -> None:
+    sr = Sr201(sr201_ip)
+    try:
+        sr.do_close(f"close:{relay}")
+        time.sleep(pause_seconds)
+        sr.do_open(f"open:{relay}")
+        time.sleep(pause_seconds)
+        sr.do_close(f"close:{relay}")
+    finally:
+        sr.close()
 
 
-def heat_logic(heat_on: bool, last_state: bool, relay_status: bool):
-    # Check if there is a change in the heat_on parameter compared to the last state
+def sr201_heat_off(sr201_ip: str, relay: int, pause_seconds: int) -> None:
+    sr = Sr201(sr201_ip)
+    try:
+        sr.do_close(f"close:{relay}")
+        time.sleep(pause_seconds)
+        sr.do_open(f"open:{relay}")
+        time.sleep(pause_seconds)
+        sr.do_close(f"close:{relay}")
+        time.sleep(pause_seconds)
+        sr.do_open(f"open:{relay}")
+    finally:
+        sr.close()
+
+
+def update_storsalen_glamox(logger: logging.Logger, cfg: Dict[str, Any], heat_on: bool) -> None:
+    if not cfg["glamox"].get("enabled", True):
+        logger.info("Glamox disabled; skipping update.")
+        return
+
+    target = cfg["glamox"]["heat_on_temp"] if heat_on else cfg["glamox"]["heat_off_temp"]
+    ctrl = glamox_controller(room_name=cfg["glamox"]["room_name"])
+    ctrl.set_temperature(target)
+    logger.info("STORSALEN status: %s", ctrl.get_control_status())
+
+
+def check_update_pray(logger: logging.Logger, cfg: Dict[str, Any], heat_on: bool) -> None:
+    if not cfg["mill"].get("enabled", True):
+        logger.info("Mill disabled; skipping PRAY update.")
+        return
+
+    controller = mill_controller(ip_address=cfg["mill"]["ip"], temp_type=cfg["mill"]["temp_type"])
+    target = cfg["mill"]["heat_on_temp"] if heat_on else cfg["mill"]["heat_off_temp"]
+    logger.info("Set PRAY heat to %.0fC.", target)
+    result = controller.set_temperature(target)
+    logger.info("PRAY%s", result)
+    logger.debug("%s", controller.get_control_status())
+
+
+def check_relay_state(logger: logging.Logger, conn: sqlite3.Connection, cfg: Dict[str, Any], heat_on: bool) -> Optional[bool]:
+    last_state = read_relay_state(conn)
+    logger.info("Last state: %s", last_state)
+
+    if not cfg["sr201"].get("enabled", False):
+        logger.info("SR201 disabled; skipping relay operations.")
+        save_relay_state(conn, heat_on)
+        if heat_on != last_state:
+            logger.info("Change of state detected")
+            return heat_on
+        return None
+
+    relay_status = sr201_status(cfg["sr201"]["ip"], cfg["sr201"]["relay"])
+    save_relay_state(conn, heat_on)
+
     if heat_on != last_state:
         logger.info("Change of state detected")
-    # Check if heat is supposed to be on
+
     if heat_on:
-        # If the relay status is off, turn the heat on
         if not relay_status:
             logger.info("Turning heat on.")
-            interact_with_sr201('heat_on')
-            update_storsalen_glamox((heat_on))
+            sr201_heat_on(
+                cfg["sr201"]["ip"],
+                cfg["sr201"]["relay"],
+                int(cfg["sr201"]["relay_pause_seconds"]),
+            )
+            return True
         else:
             logger.info("Relay is already on, not turning heat on.")
-    else:
-        # If the relay status is on, turn the heat off
-        if relay_status:
-            logger.info("Turning heat off.")
-            interact_with_sr201('heat_off')
-            update_storsalen_glamox((False))
-        else:
-            logger.info("Relay is already off, not turning heat off.")
+        return None
+
+    if relay_status:
+        logger.info("Turning heat off.")
+        sr201_heat_off(
+            cfg["sr201"]["ip"],
+            cfg["sr201"]["relay"],
+            int(cfg["sr201"]["relay_pause_seconds"]),
+        )
+        return False
+
+    logger.info("Relay is already off, not turning heat off.")
+    return None
 
 
-def check_update_pray(pray_heat_on):
+def validate_config(cfg: Dict[str, Any]) -> None:
+    if not cfg["google"]["key_file"]:
+        raise ValueError("google.key_file is required")
+    if not cfg["google"]["calendar_id"]:
+        raise ValueError("google.calendar_id is required")
+    if not cfg["google"]["pray_id"]:
+        raise ValueError("google.pray_id is required")
+    if cfg["sr201"].get("enabled", False):
+        if not cfg["sr201"]["ip"]:
+            raise ValueError("sr201.ip is required when sr201 is enabled")
+        relay = cfg["sr201"]["relay"]
+        if relay < 1 or relay > 8:
+            raise ValueError(f"sr201.relay must be 1-8 when sr201 is enabled, got {relay}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Bedehus heating controller")
+    parser.add_argument("--config", default="config/config.json", help="Path to config file")
+    args = parser.parse_args()
+
+    base_dir = Path(__file__).resolve().parent
+    os.chdir(base_dir)
+
     try:
-        controller = mill_controller(
-            ip_address=MILL_IP_ADDRESS, temp_type=MILL_TEMP_TYPE)
-        if pray_heat_on:
-            logger.info("Set PRAY heat to 21C.")
-            result = controller.set_temperature(21)
-            logger.debug(str(controller.get_control_status()))
-        else:
-            logger.info("Set PRAY heat to 17C.")
-            result = controller.set_temperature(17)
-            logger.debug(str(controller.get_control_status()))
-
-        logger.info("PRAY" + str(result))
+        cfg = load_config(base_dir, args.config)
+        validate_config(cfg)
     except Exception as e:
-        # Log an error message indicating an exception occurred in the main function
-        logger.error(f"Error interacting with PRAY: {e}")
-        raise
+        print(f"Error loading config: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
 
+    logger = setup_logging(base_dir, cfg)
+    timing: Dict[str, float] = {}
+    conn = None
 
-def main():
     try:
-        initialize()
-        # Setup Google Calendar client
-        service = setup_google_calendar_client()
+        state_path = resolve_path(base_dir, cfg["state_db"]["path"])
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with timed_step(logger, timing, "state_db_open"):
+            conn = open_state_db(state_path)
 
-        # Define the time window for events
-        current_time = datetime.datetime.utcnow()
-        # time_window_end = current_time + datetime.timedelta(hours=2)
-        time_window_end = current_time + EVENT_LOOKAHEAD
+        with conn:
+            with timed_step(logger, timing, "google_client"):
+                service = setup_google_calendar_client(cfg, base_dir)
 
-        # Storsalen
-        # Get calendar events
-        events = get_calendar_events(
-            CALENDAR_ID, service, current_time, time_window_end)
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+            end_time = current_time + datetime.timedelta(hours=cfg["time_window_hours"])
 
-        # Process events and determine if heating is needed
-        heat_on = process_events(events)
+            with timed_step(logger, timing, "calendar_storsalen"):
+                events = get_calendar_events_with_fallback(
+                    logger,
+                    conn,
+                    cfg,
+                    service,
+                    cfg["google"]["calendar_id"],
+                    current_time,
+                    end_time,
+                )
+            heat_on = process_events(logger, events)
 
-        # Check and update SR-201 relay status
-        check_relay_state(heat_on)
+            with timed_step(logger, timing, "sr201_logic"):
+                glamox_update = check_relay_state(logger, conn, cfg, heat_on)
 
-        # Bønnerom
-        # Get calendar events
-        events = get_calendar_events(
-            PRAY_ID, service, current_time, time_window_end)
+            with timed_step(logger, timing, "glamox_logic"):
+                if glamox_update is not None:
+                    update_storsalen_glamox(logger, cfg, glamox_update)
 
-        # Process events and determine if heating is needed
-        pray_heat_on = process_events(events)
+            with timed_step(logger, timing, "calendar_pray"):
+                pray_events = get_calendar_events_with_fallback(
+                    logger,
+                    conn,
+                    cfg,
+                    service,
+                    cfg["google"]["pray_id"],
+                    current_time,
+                    end_time,
+                )
+            pray_heat_on = process_events(logger, pray_events)
 
-        # Check and update SR-201 relay status
-        check_update_pray(pray_heat_on)
+            with timed_step(logger, timing, "mill_logic"):
+                check_update_pray(logger, cfg, pray_heat_on)
 
     except Exception as e:
-        # Log an error message indicating an exception occurred in the main function
-        logger.error(f"Error in main: {e}")
-        # Exit the program with an exit code of 1
-        exit(1)
+        logger.error("Error in main: %s", e)
+        raise SystemExit(1) from e
+    finally:
+        if conn is not None:
+            conn.close()
+        if timing:
+            pretty = ", ".join(f"{key}={value:.1f}ms" for key, value in sorted(timing.items(), key=lambda kv: kv[1], reverse=True))
+            logger.info("Timing summary: %s", pretty)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

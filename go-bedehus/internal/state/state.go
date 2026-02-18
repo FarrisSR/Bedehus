@@ -2,9 +2,11 @@ package state
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"google.golang.org/api/calendar/v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -43,6 +45,27 @@ func (s *Store) init() error {
 			updated_at TEXT NOT NULL
 		)
 	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS calendar_cache (
+			calendar_id TEXT NOT NULL,
+			window_start TEXT NOT NULL,
+			window_end TEXT NOT NULL,
+			fetched_at TEXT NOT NULL,
+			events_json TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_calendar_cache_lookup
+		ON calendar_cache(calendar_id, fetched_at)
+	`)
 	return err
 }
 
@@ -69,4 +92,53 @@ func (s *Store) SetRelayState(state bool) error {
 		ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
 	`, value, time.Now().UTC().Format(time.RFC3339))
 	return err
+}
+
+func (s *Store) SaveCalendarCache(calendarID string, windowStart, windowEnd time.Time, events []*calendar.Event) error {
+	payload, err := json.Marshal(events)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO calendar_cache (calendar_id, window_start, window_end, fetched_at, events_json)
+		VALUES (?, ?, ?, ?, ?)
+	`,
+		calendarID,
+		windowStart.UTC().Format(time.RFC3339),
+		windowEnd.UTC().Format(time.RFC3339),
+		time.Now().UTC().Format(time.RFC3339),
+		string(payload),
+	)
+	return err
+}
+
+func (s *Store) GetCachedEvents(calendarID string, windowStart time.Time, maxAge time.Duration) ([]*calendar.Event, bool, error) {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	row := s.db.QueryRow(`
+		SELECT events_json
+		FROM calendar_cache
+		WHERE calendar_id = ?
+		  AND fetched_at >= ?
+		  AND window_end >= ?
+		ORDER BY fetched_at DESC
+		LIMIT 1
+	`,
+		calendarID,
+		cutoff,
+		windowStart.UTC().Format(time.RFC3339),
+	)
+
+	var payload string
+	if err := row.Scan(&payload); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	var events []*calendar.Event
+	if err := json.Unmarshal([]byte(payload), &events); err != nil {
+		return nil, false, err
+	}
+	return events, true, nil
 }
