@@ -8,6 +8,7 @@
     "pray_id": "YOUR_PRAY_ID"
   },
   "sr201": {
+    "enabled": false,
     "ip": "192.168.100.100",
     "port": 6722,
     "relay": 1,
@@ -29,6 +30,7 @@
     "heat_off_temp": 17
   },
   "logging": {
+    "python_config_file": "logging.config",
     "console": {
       "enabled": true,
       "level": "INFO"
@@ -37,7 +39,7 @@
       "enabled": false,
       "level": "DEBUG",
       "path": "BedehusTemperaturProgram.log",
-      "max_bytes": 10485760,
+      "max_bytes": 1024,
       "backup_count": 31
     },
     "syslog": {
@@ -45,6 +47,12 @@
       "level": "INFO",
       "address": "10.253.4.1:5515"
     }
+  },
+  "cache": {
+    "google_max_age_hours": 24
+  },
+  "timing": {
+    "enabled": false
   },
   "state_db": {
     "path": "config/relay_state.db"

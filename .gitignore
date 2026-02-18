@@ -16,4 +16,5 @@ BedehusTemperaturProgram.log*
 service-account-key.json
 secrets.json
 config/relay_state.db
+config/config.json
 go-bedehus/dist/
