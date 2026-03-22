@@ -1,0 +1,10 @@
+[Unit]
+Description=Bedehus ARP presence logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/code/Bedehus-glamox
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/code/Bedehus-glamox/scripts/cron_arp_presence.sh

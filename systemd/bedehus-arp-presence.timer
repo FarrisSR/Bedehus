@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Bedehus ARP presence logger every minute
+
+[Timer]
+OnCalendar=*:0/1
+Persistent=true
+Unit=bedehus-arp-presence.service
+
+[Install]
+WantedBy=timers.target
