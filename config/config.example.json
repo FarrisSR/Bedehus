@@ -29,6 +29,13 @@
     "heat_on_temp": 21,
     "heat_off_temp": 17
   },
+  "arp": {
+    "interface": "wlan0",
+    "alias_file": "scripts/arp_alias",
+    "alias_prefix": "glamox_ovn_",
+    "command": ["sudo", "arp-scan", "-I", "{interface}", "--localnet"],
+    "emit_summary": true
+  },
   "logging": {
     "python_config_file": "logging.config",
     "console": {

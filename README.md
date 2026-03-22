@@ -57,3 +57,23 @@ go mod tidy
 go build -o bedehus .
 ./bedehus -config ../config/config.json
 ```
+
+
+## ARP-overvåkning av ovner
+
+For lokal overvåkning av ARP-synlighet (f.eks. Glamox-ovner) finnes `scripts/arp_presence_logger.py`.
+Den leser alias fra `scripts/arp_alias`, kjører `arp-scan` med valgt interface (standard `wlan0`, dvs. `-I <interface>`), og logger JSON-lines via `logging_arp.config` til syslog (`bedehus-arp`).
+
+Eksempel:
+
+```
+python3 scripts/arp_presence_logger.py --config config/config.json --stdout
+```
+
+Eksempelfiler for `systemd` ligger i `systemd/bedehus-arp-presence.service` og `systemd/bedehus-arp-presence.timer`. For cron kan `scripts/cron_arp_presence.sh` brukes; scriptet finner repo-roten automatisk, bruker `venv/bin/python` hvis den finnes, og faller ellers tilbake til `python3`.
+
+Eksempel på crontab-linje på Pi1:
+
+```
+*/5 * * * * cd /home/runo/code/Bedehus-glamox && flock -n /home/runo/arp_presence.lockfile /home/runo/code/Bedehus-glamox/scripts/cron_arp_presence.sh >> /dev/null 2>&1
+```
