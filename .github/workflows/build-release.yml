@@ -14,6 +14,7 @@ jobs:
     defaults:
       run:
         working-directory: go-bedehus
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,20 +25,27 @@ jobs:
           go-version-file: go-bedehus/go.mod
           cache: true
 
-      - name: Build armv6
+      - name: Build armv6 binaries
         run: make build-pi1
 
-      - name: Upload build artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bedehus-linux-armv6
-          path: go-bedehus/dist/bedehus-linux-armv6
+          path: |
+            go-bedehus/dist/bedehus-linux-armv6
+            go-bedehus/dist/bedehus-on-linux-armv6
+            go-bedehus/dist/bedehus-off-linux-armv6
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.tag }}
-          files: go-bedehus/dist/bedehus-linux-armv6
+          files: |
+            go-bedehus/dist/bedehus-linux-armv6
+            go-bedehus/dist/bedehus-on-linux-armv6
+            go-bedehus/dist/bedehus-off-linux-armv6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
