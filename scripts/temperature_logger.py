@@ -17,6 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -33,6 +34,7 @@ DEFAULT_YR_LAT = 59.885
 DEFAULT_YR_LON = 11.567
 # Ca. høyde over havet i Bjørkelangen-området.
 DEFAULT_YR_ALTITUDE = 130
+DISPLAY_TZ = ZoneInfo("Europe/Oslo")
 YR_API_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 YR_USER_AGENT = (
     "BedehusGlamox/1.0 (https://github.com/FarrisSR/Bedehus-glamox; contact: runo)"
@@ -75,6 +77,64 @@ CREATE TABLE IF NOT EXISTS readings (
 );
 """
 
+CREATE_UNIQUE_INDEX_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_readings_source_room_recorded_at
+ON readings (source, room, recorded_at);
+"""
+
+CREATE_RECORDED_AT_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_readings_recorded_at
+ON readings (recorded_at);
+"""
+
+CREATE_HEATER_PRESENCE_EVENTS_SQL = """
+CREATE TABLE IF NOT EXISTS heater_presence_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    recorded_hour TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    mac TEXT,
+    ip TEXT,
+    scanner TEXT,
+    online INTEGER NOT NULL,
+    raw JSON
+);
+"""
+
+CREATE_HEATER_PRESENCE_EVENTS_UNIQUE_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_heater_presence_events_recorded_at_alias
+ON heater_presence_events (recorded_at, alias);
+"""
+
+CREATE_HEATER_PRESENCE_EVENTS_HOUR_SQL = """
+CREATE INDEX IF NOT EXISTS idx_heater_presence_events_recorded_hour
+ON heater_presence_events (recorded_hour);
+"""
+
+CREATE_HEATER_PRESENCE_HOURLY_SQL = """
+CREATE TABLE IF NOT EXISTS heater_presence_hourly (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_hour TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    online INTEGER NOT NULL,
+    observed_at TEXT,
+    mac TEXT,
+    ip TEXT,
+    scanner TEXT,
+    raw JSON
+);
+"""
+
+CREATE_HEATER_PRESENCE_HOURLY_UNIQUE_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_heater_presence_hourly_hour_alias
+ON heater_presence_hourly (recorded_hour, alias);
+"""
+
+CREATE_HEATER_PRESENCE_HOURLY_HOUR_SQL = """
+CREATE INDEX IF NOT EXISTS idx_heater_presence_hourly_recorded_hour
+ON heater_presence_hourly (recorded_hour);
+"""
+
 
 @dataclass
 class Reading:
@@ -99,11 +159,70 @@ class Reading:
         )
 
 
+@dataclass
+class HeaterOnlineCount:
+    recorded_at: dt.datetime
+    online_count: int
+    expected_count: int
+
+
+@dataclass
+class HeaterPresenceStatus:
+    recorded_at: dt.datetime
+    alias: str
+    online: bool
+    observed_at: Optional[dt.datetime]
+    mac: Optional[str]
+    ip: Optional[str]
+    scanner: Optional[str]
+
+
+def utc_now_naive() -> dt.datetime:
+    # Hold SQLite-formatet som naiv UTC for bakoverkompatibilitet med eksisterende rader.
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
 def ensure_db(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute(CREATE_TABLE_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_EVENTS_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_HOURLY_SQL)
+    deleted = cleanup_duplicate_readings(conn)
+    conn.execute(CREATE_UNIQUE_INDEX_SQL)
+    conn.execute(CREATE_RECORDED_AT_INDEX_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_EVENTS_UNIQUE_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_EVENTS_HOUR_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_HOURLY_UNIQUE_SQL)
+    conn.execute(CREATE_HEATER_PRESENCE_HOURLY_HOUR_SQL)
+    conn.commit()
+    if deleted:
+        print(f"Ryddet {deleted} duplikate temperaturmålinger i {db_path}", file=sys.stderr)
     return conn
+
+
+def cleanup_duplicate_readings(conn: sqlite3.Connection) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM readings
+        WHERE id IN (
+            SELECT id
+            FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source, room, recorded_at
+                           ORDER BY id DESC
+                       ) AS row_num
+                FROM readings
+            )
+            WHERE row_num > 1
+        )
+        """
+    )
+    deleted = cur.rowcount or 0
+    if deleted:
+        conn.commit()
+    return deleted
 
 
 def insert_reading(conn: sqlite3.Connection, reading: Reading) -> None:
@@ -111,6 +230,10 @@ def insert_reading(conn: sqlite3.Connection, reading: Reading) -> None:
         """
         INSERT INTO readings (recorded_at, source, room, temperature_c, target_c, raw)
         VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, room, recorded_at) DO UPDATE SET
+            temperature_c = excluded.temperature_c,
+            target_c = excluded.target_c,
+            raw = excluded.raw
         """,
         (
             reading.recorded_at.isoformat(),
@@ -135,7 +258,7 @@ def fetch_readings(
     params: List[Any] = []
 
     if hours is not None:
-        since = dt.datetime.utcnow() - dt.timedelta(hours=hours)
+        since = utc_now_naive() - dt.timedelta(hours=hours)
         clauses.append("recorded_at >= ?")
         params.append(since.isoformat())
     if source:
@@ -151,6 +274,221 @@ def fetch_readings(
 
     cur = conn.execute(query, params)
     return [Reading.from_row(row) for row in cur.fetchall()]
+
+
+def fetch_heater_online_counts(
+    conn: sqlite3.Connection,
+    hours: Optional[int] = None,
+) -> List[HeaterOnlineCount]:
+    query = """
+        SELECT recorded_hour, SUM(online) AS online_count, COUNT(*) AS expected_count
+        FROM heater_presence_hourly
+    """
+    params: List[Any] = []
+    clauses: List[str] = []
+    if hours is not None:
+        since = utc_now_naive() - dt.timedelta(hours=hours)
+        clauses.append("recorded_hour >= ?")
+        params.append(since.replace(minute=0, second=0, microsecond=0).isoformat())
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " GROUP BY recorded_hour ORDER BY recorded_hour ASC"
+
+    cur = conn.execute(query, params)
+    return [
+        HeaterOnlineCount(
+            recorded_at=dt.datetime.fromisoformat(recorded_hour),
+            online_count=int(online_count or 0),
+            expected_count=int(expected_count or 0),
+        )
+        for recorded_hour, online_count, expected_count in cur.fetchall()
+    ]
+
+
+def fetch_latest_heater_presence_statuses(conn: sqlite3.Connection) -> List[HeaterPresenceStatus]:
+    row = conn.execute("SELECT MAX(recorded_hour) FROM heater_presence_hourly").fetchone()
+    latest_hour = row[0] if row else None
+    if not latest_hour:
+        return []
+
+    cur = conn.execute(
+        """
+        SELECT recorded_hour, alias, online, observed_at, mac, ip, scanner
+        FROM heater_presence_hourly
+        WHERE recorded_hour = ?
+        ORDER BY alias ASC
+        """,
+        (latest_hour,),
+    )
+    results: List[HeaterPresenceStatus] = []
+    for recorded_hour, alias, online, observed_at, mac, ip, scanner in cur.fetchall():
+        results.append(
+            HeaterPresenceStatus(
+                recorded_at=dt.datetime.fromisoformat(recorded_hour),
+                alias=str(alias),
+                online=bool(online),
+                observed_at=dt.datetime.fromisoformat(observed_at) if observed_at else None,
+                mac=mac,
+                ip=ip,
+                scanner=scanner,
+            )
+        )
+    return results
+
+
+def _extract_json_payload(line: str) -> Optional[Dict[str, Any]]:
+    brace_index = line.find("{")
+    if brace_index < 0:
+        return None
+    try:
+        payload = json.loads(line[brace_index:])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def load_arp_aliases(path: Path) -> List[str]:
+    if not path.exists():
+        return []
+
+    aliases: List[str] = []
+    seen: set[str] = set()
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        columns = line.split()
+        candidate = columns[-1]
+        if not candidate.startswith("glamox_ovn_"):
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        aliases.append(candidate)
+    return aliases
+
+
+def import_arp_presence(
+    conn: sqlite3.Connection,
+    log_path: Path,
+    aliases_path: Path,
+) -> Dict[str, int]:
+    if not log_path.exists():
+        raise RuntimeError(f"Fant ikke ARP-logg: {log_path}")
+
+    event_map: Dict[Tuple[dt.datetime, str], Dict[str, Any]] = {}
+    event_rows = 0
+    seen_aliases: set[str] = set()
+    summary_hours: set[dt.datetime] = set()
+
+    with log_path.open() as handle:
+        for line in handle:
+            payload = _extract_json_payload(line)
+            if not payload:
+                continue
+            ts_value = payload.get("ts")
+            if ts_value:
+                try:
+                    parsed = dt.datetime.fromisoformat(str(ts_value).replace("Z", "+00:00"))
+                except ValueError:
+                    parsed = None
+                if parsed is not None:
+                    recorded_at = parsed.astimezone(dt.UTC).replace(tzinfo=None)
+                    summary_hours.add(recorded_at.replace(minute=0, second=0, microsecond=0))
+            if payload.get("type") != "arp_presence":
+                continue
+            if payload.get("online") is not True:
+                continue
+            alias = payload.get("alias")
+            if not alias or not ts_value:
+                continue
+            try:
+                parsed = dt.datetime.fromisoformat(str(ts_value).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            recorded_at = parsed.astimezone(dt.UTC).replace(tzinfo=None)
+            recorded_hour = recorded_at.replace(minute=0, second=0, microsecond=0)
+            seen_aliases.add(str(alias))
+            conn.execute(
+                """
+                INSERT INTO heater_presence_events
+                (recorded_at, recorded_hour, alias, mac, ip, scanner, online, raw)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(recorded_at, alias) DO UPDATE SET
+                    recorded_hour = excluded.recorded_hour,
+                    mac = excluded.mac,
+                    ip = excluded.ip,
+                    scanner = excluded.scanner,
+                    online = excluded.online,
+                    raw = excluded.raw
+                """,
+                (
+                    recorded_at.isoformat(),
+                    recorded_hour.isoformat(),
+                    str(alias),
+                    payload.get("mac"),
+                    payload.get("ip"),
+                    payload.get("scanner"),
+                    1,
+                    json.dumps(payload),
+                ),
+            )
+            event_rows += 1
+            key = (recorded_hour, str(alias))
+            existing = event_map.get(key)
+            if existing is None or recorded_at >= existing["recorded_at"]:
+                event_map[key] = {
+                    "recorded_at": recorded_at,
+                    "payload": payload,
+                }
+
+    aliases = load_arp_aliases(aliases_path)
+    if not aliases:
+        aliases = sorted(seen_aliases)
+        print(
+            f"Fant ingen aliasfil i {aliases_path}; bruker aliaser observert i loggen.",
+            file=sys.stderr,
+        )
+
+    hours = sorted(summary_hours or {hour for hour, _ in event_map})
+    hourly_rows = 0
+    for hour in hours:
+        for alias in aliases:
+            event = event_map.get((hour, alias))
+            payload = event["payload"] if event else None
+            conn.execute(
+                """
+                INSERT INTO heater_presence_hourly
+                (recorded_hour, alias, online, observed_at, mac, ip, scanner, raw)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(recorded_hour, alias) DO UPDATE SET
+                    online = excluded.online,
+                    observed_at = excluded.observed_at,
+                    mac = excluded.mac,
+                    ip = excluded.ip,
+                    scanner = excluded.scanner,
+                    raw = excluded.raw
+                """,
+                (
+                    hour.isoformat(),
+                    alias,
+                    1 if event else 0,
+                    event["recorded_at"].isoformat() if event else None,
+                    payload.get("mac") if payload else None,
+                    payload.get("ip") if payload else None,
+                    payload.get("scanner") if payload else None,
+                    json.dumps(payload) if payload else None,
+                ),
+            )
+            hourly_rows += 1
+
+    conn.commit()
+    return {
+        "events_seen": event_rows,
+        "hours_written": len(hours),
+        "aliases_used": len(aliases),
+        "hourly_rows_written": hourly_rows,
+    }
 
 
 def load_secrets(path: Path) -> Dict[str, Any]:
@@ -238,7 +576,7 @@ class MillCloudClient:
         self._token = token
         self._refresh = refresh
         if expires:
-            self._token_expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=expires - 30)
+            self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(seconds=expires - 30)
         self.session.headers.update({"Authorization": f"Bearer {self._token}"})
 
     def _refresh_token(self) -> None:
@@ -264,14 +602,14 @@ class MillCloudClient:
         self._token = token
         self._refresh = refresh or self._refresh
         if expires:
-            self._token_expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=expires - 30)
+            self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(seconds=expires - 30)
         self.session.headers.update({"Authorization": f"Bearer {self._token}"})
 
     def ensure_login(self) -> None:
         if not self._token:
             self._sign_in()
             return
-        if self._token_expires_at and dt.datetime.now(dt.timezone.utc) >= self._token_expires_at:
+        if self._token_expires_at and dt.datetime.now(dt.UTC) >= self._token_expires_at:
             self._refresh_token()
 
     def fetch_device_status(self, device_id: str) -> Dict[str, Any]:
@@ -429,7 +767,7 @@ def fetch_glamox_reading(room_name: str) -> Reading:
     status = ctrl.get_control_status()
     if not status:
         raise RuntimeError(f"Ingen status mottatt fra Glamox for {room_name}")
-    now = dt.datetime.utcnow()
+    now = utc_now_naive()
     return Reading(
         source="glamox",
         room=status.get("room") or room_name,
@@ -445,7 +783,7 @@ def fetch_mill_reading(
 ) -> Reading:
     payload = client.fetch_device_status(device_id)
     current, target = client.extract_temp(payload)
-    now = dt.datetime.utcnow()
+    now = utc_now_naive()
     resolved_room = room_name or str(payload.get("name") or payload.get("roomName") or device_id)
     return Reading(
         source="mill",
@@ -484,9 +822,9 @@ def fetch_yr_outdoor_temperature(
     time_str = latest.get("time")
     if time_str:
         parsed_time = dt.datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-        recorded_at = parsed_time.astimezone(dt.timezone.utc).replace(tzinfo=None)
+        recorded_at = parsed_time.astimezone(dt.UTC).replace(tzinfo=None)
     else:
-        recorded_at = dt.datetime.utcnow()
+        recorded_at = utc_now_naive()
     return Reading(
         source="yr",
         room=place_name,
@@ -501,6 +839,7 @@ def plot_history(
     readings: Iterable[Reading],
     output: Path,
     max_points: int = 800,
+    heater_counts: Optional[List[HeaterOnlineCount]] = None,
 ) -> None:
     import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
@@ -512,6 +851,41 @@ def plot_history(
 
     if not series:
         raise RuntimeError("Ingen målinger å plotte")
+
+    def gap_threshold(points: List[dt.datetime]) -> Optional[dt.timedelta]:
+        if len(points) < 2:
+            return None
+        deltas = sorted(
+            [
+                points[idx] - points[idx - 1]
+                for idx in range(1, len(points))
+                if points[idx] > points[idx - 1]
+            ]
+        )
+        if not deltas:
+            return None
+        typical = deltas[len(deltas) // 2]
+        return max(typical * 3, dt.timedelta(hours=1))
+
+    def split_on_gaps(
+        points: List[dt.datetime], values: List[float]
+    ) -> List[Tuple[List[dt.datetime], List[float]]]:
+        threshold = gap_threshold(points)
+        if threshold is None:
+            return [(points, values)] if points else []
+
+        segments: List[Tuple[List[dt.datetime], List[float]]] = []
+        current_times = [points[0]]
+        current_values = [values[0]]
+        for idx in range(1, len(points)):
+            if points[idx] - points[idx - 1] > threshold:
+                segments.append((current_times, current_values))
+                current_times = []
+                current_values = []
+            current_times.append(points[idx])
+            current_values.append(values[idx])
+        segments.append((current_times, current_values))
+        return segments
 
     def downsample(times: List[dt.datetime], values: List[float]) -> Tuple[List[dt.datetime], List[float]]:
         if max_points is None or len(times) <= max_points:
@@ -529,35 +903,71 @@ def plot_history(
         times = [r.recorded_at for r in items]
         temps = [r.temperature_c for r in items]
         label_base = f"{source}/{room}"
-        ds_times, ds_temps = downsample(times, temps)
-        ax.plot(
-            ds_times,
-            ds_temps,
-            label=f"{label_base} målt",
-            marker="o",
-            linewidth=1.0,
-            markersize=3,
-        )
-        target_points = [(r.recorded_at, r.target_c) for r in items if r.target_c is not None]
-        if target_points:
-            target_times, targets = zip(*target_points)
-            ds_target_times, ds_targets = downsample(list(target_times), list(targets))
+        temp_segments = split_on_gaps(times, temps)
+        for idx, (segment_times, segment_temps) in enumerate(temp_segments):
+            ds_times, ds_temps = downsample(segment_times, segment_temps)
             ax.plot(
-                ds_target_times,
-                ds_targets,
-                linestyle="--",
-                label=f"{label_base} target",
+                ds_times,
+                ds_temps,
+                label=f"{label_base} målt" if idx == 0 else None,
                 marker="o",
                 linewidth=1.0,
                 markersize=3,
             )
+        target_points = [(r.recorded_at, r.target_c) for r in items if r.target_c is not None]
+        if target_points:
+            target_times, targets = zip(*target_points)
+            for idx, (segment_times, segment_targets) in enumerate(
+                split_on_gaps(list(target_times), list(targets))
+            ):
+                ds_target_times, ds_targets = downsample(segment_times, segment_targets)
+                ax.plot(
+                    ds_target_times,
+                    ds_targets,
+                    linestyle="--",
+                    label=f"{label_base} target" if idx == 0 else None,
+                    marker="o",
+                    linewidth=1.0,
+                    markersize=3,
+                )
 
     ax.set_ylabel("Temperatur (°C)")
-    ax.set_xlabel("Tid (UTC)")
+    ax.set_xlabel("Tid (Europe/Oslo)")
     ax.set_title("Temperatur vs target")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=DISPLAY_TZ))
+    ax2 = None
+    if heater_counts:
+        ax2 = ax.twinx()
+        count_times = [item.recorded_at for item in heater_counts]
+        online_counts = [item.online_count for item in heater_counts]
+        expected_counts = [item.expected_count for item in heater_counts]
+        ax2.step(
+            count_times,
+            online_counts,
+            where="post",
+            label="Ovner online",
+            linewidth=1.4,
+            color="tab:green",
+        )
+        ax2.step(
+            count_times,
+            expected_counts,
+            where="post",
+            linestyle="--",
+            label="Forventede ovner",
+            linewidth=1.0,
+            color="tab:gray",
+        )
+        max_count = max(expected_counts + online_counts)
+        ax2.set_ylabel("Antall ovner")
+        ax2.set_ylim(-0.2, max_count + 0.5)
     fig.autofmt_xdate()
-    ax.legend()
+    if ax2:
+        handles1, labels1 = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(handles1 + handles2, labels1 + labels2, loc="upper left")
+    else:
+        ax.legend()
     ax.grid(True)
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
@@ -700,8 +1110,46 @@ def handle_mill_list(args: argparse.Namespace) -> None:
 def handle_plot(args: argparse.Namespace) -> None:
     conn = ensure_db(Path(args.db))
     readings = fetch_readings(conn, hours=args.hours, source=args.source, room=args.room)
-    plot_history(readings, Path(args.output))
+    heater_counts = fetch_heater_online_counts(conn, hours=args.hours)
+    plot_history(readings, Path(args.output), heater_counts=heater_counts)
     print(f"Lagret graf til {args.output}")
+
+
+def handle_import_arp_presence(args: argparse.Namespace) -> None:
+    conn = ensure_db(Path(args.db))
+    summary = import_arp_presence(
+        conn,
+        log_path=Path(args.log_path),
+        aliases_path=Path(args.aliases_file),
+    )
+    print(
+        "Importerte ARP-presence: "
+        f"{summary['events_seen']} events, "
+        f"{summary['hours_written']} timer, "
+        f"{summary['aliases_used']} aliaser, "
+        f"{summary['hourly_rows_written']} hourly-rader"
+    )
+
+
+def handle_heater_status(args: argparse.Namespace) -> None:
+    conn = ensure_db(Path(args.db))
+    statuses = fetch_latest_heater_presence_statuses(conn)
+    if not statuses:
+        print("Ingen ovnstatus funnet i databasen.")
+        return
+
+    online_count = sum(1 for item in statuses if item.online)
+    print(
+        f"Siste time: {statuses[0].recorded_at.isoformat()} "
+        f"({online_count} av {len(statuses)} online)"
+    )
+    for item in statuses:
+        state = "online" if item.online else "nede"
+        observed = item.observed_at.isoformat() if item.observed_at else "-"
+        print(
+            f"{item.alias}: {state} "
+            f"(observert {observed}, ip={item.ip or '-'}, mac={item.mac or '-'})"
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -803,6 +1251,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", required=True, help="Filsti for PNG som skrives ut"
     )
     plot_parser.set_defaults(func=handle_plot)
+
+    arp_parser = sub.add_parser(
+        "import-arp-presence",
+        help="Importer ovnstatus per time fra arp-scan.jsonl til egen SQLite-tabell",
+    )
+    arp_parser.add_argument("--db", default=str(DEFAULT_DB), help="Sti til SQLite-fil")
+    arp_parser.add_argument(
+        "--log-path",
+        default="/var/log/bedehus/arp-scan.jsonl",
+        help="JSONL-logg med arp_presence events",
+    )
+    arp_parser.add_argument(
+        "--aliases-file",
+        default="scripts/arp_alias",
+        help="Fil med forventede ovn-aliaser, ett alias per linje",
+    )
+    arp_parser.set_defaults(func=handle_import_arp_presence)
+
+    heater_status_parser = sub.add_parser(
+        "heater-status",
+        help="Vis siste times status for Glamox-ovner fra ARP-importen",
+    )
+    heater_status_parser.add_argument("--db", default=str(DEFAULT_DB), help="Sti til SQLite-fil")
+    heater_status_parser.set_defaults(func=handle_heater_status)
 
     return parser
 

@@ -15,6 +15,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -24,12 +25,12 @@ from temperature_logger import (  # type: ignore  # reuse Mill client/secrets he
     DEFAULT_MILL_API,
     MillCloudClient,
     Reading as TempReading,
-    ensure_db as ensure_temp_db,
     load_secrets,
     resolve_secret,
 )
 
 DEFAULT_DB = Path("data/energy_history.sqlite")
+DISPLAY_TZ = ZoneInfo("Europe/Oslo")
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS energy_readings (
@@ -44,6 +45,16 @@ CREATE TABLE IF NOT EXISTS energy_readings (
     energy_wh_delta REAL,
     raw JSON
 );
+"""
+
+CREATE_UNIQUE_INDEX_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_energy_readings_source_device_recorded_at
+ON energy_readings (source, device_id, recorded_at);
+"""
+
+CREATE_RECORDED_AT_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_energy_readings_recorded_at
+ON energy_readings (recorded_at);
 """
 
 
@@ -86,7 +97,37 @@ def ensure_db(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute(CREATE_TABLE_SQL)
+    deleted = cleanup_duplicate_readings(conn)
+    conn.execute(CREATE_UNIQUE_INDEX_SQL)
+    conn.execute(CREATE_RECORDED_AT_INDEX_SQL)
+    conn.commit()
+    if deleted:
+        print(f"Ryddet {deleted} duplikate energimålinger i {db_path}", file=sys.stderr)
     return conn
+
+
+def cleanup_duplicate_readings(conn: sqlite3.Connection) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM energy_readings
+        WHERE id IN (
+            SELECT id
+            FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source, device_id, recorded_at
+                           ORDER BY id DESC
+                       ) AS row_num
+                FROM energy_readings
+            )
+            WHERE row_num > 1
+        )
+        """
+    )
+    deleted = cur.rowcount or 0
+    if deleted:
+        conn.commit()
+    return deleted
 
 
 def insert_reading(conn: sqlite3.Connection, reading: EnergyReading) -> None:
@@ -95,6 +136,13 @@ def insert_reading(conn: sqlite3.Connection, reading: EnergyReading) -> None:
         INSERT INTO energy_readings
         (recorded_at, source, device_id, home, room, current_power_w, energy_wh_total, energy_wh_delta, raw)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, device_id, recorded_at) DO UPDATE SET
+            home = excluded.home,
+            room = excluded.room,
+            current_power_w = excluded.current_power_w,
+            energy_wh_total = excluded.energy_wh_total,
+            energy_wh_delta = excluded.energy_wh_delta,
+            raw = excluded.raw
         """,
         (
             reading.recorded_at.isoformat(),
@@ -120,7 +168,7 @@ def fetch_readings(
     clauses: List[str] = []
     params: List[Any] = []
     if hours is not None:
-        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+        since = dt.datetime.now(dt.UTC) - dt.timedelta(hours=hours)
         clauses.append("recorded_at >= ?")
         params.append(since.isoformat())
     if device_id:
@@ -138,7 +186,7 @@ def fetch_mill_energy(
 ) -> EnergyReading:
     payload = client.fetch_device_status(device_id)
     metrics = payload.get("lastMetrics") or {}
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     return EnergyReading(
         source="mill",
         device_id=device_id,
@@ -165,6 +213,41 @@ def plot_energy(
         raise RuntimeError("Ingen energimålinger å plotte")
     times = [r.recorded_at for r in items]
 
+    def gap_threshold(points: List[dt.datetime]) -> Optional[dt.timedelta]:
+        if len(points) < 2:
+            return None
+        deltas = sorted(
+            [
+                points[idx] - points[idx - 1]
+                for idx in range(1, len(points))
+                if points[idx] > points[idx - 1]
+            ]
+        )
+        if not deltas:
+            return None
+        typical = deltas[len(deltas) // 2]
+        return max(typical * 3, dt.timedelta(hours=1))
+
+    def split_on_gaps(
+        points: List[dt.datetime], values: List[float]
+    ) -> List[Tuple[List[dt.datetime], List[float]]]:
+        threshold = gap_threshold(points)
+        if threshold is None:
+            return [(points, values)] if points else []
+
+        segments: List[Tuple[List[dt.datetime], List[float]]] = []
+        current_times = [points[0]]
+        current_values = [values[0]]
+        for idx in range(1, len(points)):
+            if points[idx] - points[idx - 1] > threshold:
+                segments.append((current_times, current_values))
+                current_times = []
+                current_values = []
+            current_times.append(points[idx])
+            current_values.append(values[idx])
+        segments.append((current_times, current_values))
+        return segments
+
     intervals: List[float] = []
     prev_total: Optional[float] = None
     for r in items:
@@ -190,7 +273,7 @@ def plot_energy(
     ax.bar(times, intervals, width=width, color="tab:orange", label="Forbruk per intervall (Wh)")
     ax.set_ylabel("Intervall (Wh)")
 
-    ax.set_xlabel("Tid (UTC)")
+    ax.set_xlabel("Tid (Europe/Oslo)")
     ax2 = None
     if temp_series:
         ax2 = ax.twinx()
@@ -199,12 +282,13 @@ def plot_energy(
                 continue
             t_times = [r.recorded_at for r in series.readings]
             t_vals = [r.temperature_c for r in series.readings]
-            ax2.plot(
-                t_times,
-                t_vals,
-                label=series.label,
-                linewidth=1.2,
-            )
+            for idx, (segment_times, segment_vals) in enumerate(split_on_gaps(t_times, t_vals)):
+                ax2.plot(
+                    segment_times,
+                    segment_vals,
+                    label=series.label if idx == 0 else None,
+                    linewidth=1.2,
+                )
             if series.include_target:
                 target_points = [
                     (r.recorded_at, r.target_c)
@@ -213,20 +297,23 @@ def plot_energy(
                 ]
                 if target_points:
                     target_times, target_vals = zip(*target_points)
-                    ax2.plot(
-                        list(target_times),
-                        list(target_vals),
-                        linestyle="--",
-                        label=f"{series.label} target",
-                        linewidth=1.0,
-                    )
+                    for idx, (segment_times, segment_vals) in enumerate(
+                        split_on_gaps(list(target_times), list(target_vals))
+                    ):
+                        ax2.plot(
+                            segment_times,
+                            segment_vals,
+                            linestyle="--",
+                            label=f"{series.label} target" if idx == 0 else None,
+                            linewidth=1.0,
+                        )
         ax2.set_ylabel("Temperatur (°C)")
 
     if ax2:
         ax.set_title("Strømforbruk per intervall + temperatur")
     else:
         ax.set_title("Strømforbruk per intervall")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=DISPLAY_TZ))
     fig.autofmt_xdate()
     ax.grid(True, axis="y")
     if ax2:
@@ -241,8 +328,6 @@ def plot_energy(
 def handle_log(args: argparse.Namespace) -> None:
     secrets = load_secrets(Path(args.secrets))
     conn = ensure_db(Path(args.db))
-    # Reuse temp-db creation to ensure path exists
-    ensure_temp_db(Path(args.db))
 
     mill_username = resolve_secret("MILL_USERNAME", args.mill_username, secrets)
     mill_password = resolve_secret("MILL_PASSWORD", args.mill_password, secrets)

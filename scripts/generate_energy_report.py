@@ -3,8 +3,10 @@
 Genererer statisk energirapport (HTML + PNG) fra energy_history.sqlite.
 """
 import argparse
+import datetime as dt
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from energy_logger import (
     DEFAULT_DB,
@@ -18,6 +20,8 @@ from temperature_logger import DEFAULT_DB as DEFAULT_TEMP_DB
 from temperature_logger import ensure_db as ensure_temp_db
 from temperature_logger import fetch_readings as fetch_temp_readings
 
+DISPLAY_TZ = ZoneInfo("Europe/Oslo")
+
 
 def latest_per_device(readings: List[EnergyReading]) -> List[EnergyReading]:
     latest = {}
@@ -26,12 +30,20 @@ def latest_per_device(readings: List[EnergyReading]) -> List[EnergyReading]:
     return list(latest.values())
 
 
+def format_display_time(value: dt.datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=dt.UTC)
+    else:
+        value = value.astimezone(dt.UTC)
+    return value.astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def render_html(img_rel_path: str, latest: List[EnergyReading], out_html: Path):
     out_html.parent.mkdir(parents=True, exist_ok=True)
     latest_rows = "".join(
         f"<tr><td>{r.device_id}</td><td>{r.home or ''}</td><td>{r.room or ''}</td>"
         f"<td>{r.current_power_w or ''}</td><td>{r.energy_wh_total or ''}</td>"
-        f"<td>{r.energy_wh_delta or ''}</td><td>{r.recorded_at.isoformat()}</td></tr>"
+        f"<td>{r.energy_wh_delta or ''}</td><td>{format_display_time(r.recorded_at)}</td></tr>"
         for r in latest
     )
     html = f"""<!doctype html>
@@ -50,11 +62,12 @@ def render_html(img_rel_path: str, latest: List[EnergyReading], out_html: Path):
 </head>
 <body>
   <h1>Energirapport (siste 48 timer)</h1>
-  <p>Siden oppdateres hver time via cron.</p>
+  <p>Siden oppdateres hver time via cron. Alle tider vises i Europe/Oslo.</p>
+  <p><a href="../rust_temp/energy.html">Se Rust-versjonen av energirapporten</a></p>
   <img src="{img_rel_path}" alt="Strømforbruk">
   <h2>Siste målinger</h2>
   <table>
-    <thead><tr><th>Device</th><th>Hus</th><th>Rom</th><th>Power (W)</th><th>Total (Wh)</th><th>Delta (Wh)</th><th>Tid (UTC)</th></tr></thead>
+    <thead><tr><th>Device</th><th>Hus</th><th>Rom</th><th>Power (W)</th><th>Total (Wh)</th><th>Delta (Wh)</th><th>Tid (Europe/Oslo)</th></tr></thead>
     <tbody>
     {latest_rows}
     </tbody>

@@ -1,0 +1,17 @@
+[Unit]
+Description=Bedehus Python Heating Controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/bedehus
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/pi/bedehus/venv/bin/python /home/pi/bedehus/systemd_main.py --config config/config.json
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

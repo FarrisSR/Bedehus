@@ -136,6 +136,20 @@ def setup_google_calendar_client(cfg: Dict[str, Any], base_dir: Path):
     return build("calendar", "v3", credentials=credentials, cache_discovery=False)
 
 
+def close_google_calendar_client(service: Any) -> None:
+    close_fn = getattr(service, "close", None)
+    if callable(close_fn):
+        close_fn()
+        return
+
+    http = getattr(service, "_http", None)
+    if http is None:
+        return
+    close_http = getattr(http, "close", None)
+    if callable(close_http):
+        close_http()
+
+
 def get_calendar_events(calendar_id: str, service, start_time: datetime.datetime, end_time: datetime.datetime) -> List[Dict[str, Any]]:
     result = service.events().list(
         calendarId=calendar_id,
@@ -206,7 +220,7 @@ def save_relay_state(conn: sqlite3.Connection, state: bool) -> None:
         VALUES (1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at
         """,
-        (1 if state else 0, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        (1 if state else 0, datetime.datetime.now(datetime.UTC).isoformat()),
     )
     conn.commit()
 
@@ -227,7 +241,7 @@ def save_calendar_cache(
             calendar_id,
             start_time.isoformat(),
             end_time.isoformat(),
-            datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            datetime.datetime.now(datetime.UTC).isoformat(),
             json.dumps(events),
         ),
     )
@@ -240,7 +254,7 @@ def load_calendar_cache(
     start_time: datetime.datetime,
     max_age_hours: int,
 ) -> Optional[List[Dict[str, Any]]]:
-    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=max_age_hours)
+    cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=max_age_hours)
     row = conn.execute(
         """
         SELECT events_json, fetched_at
@@ -424,6 +438,7 @@ def main() -> None:
     logger = setup_logging(base_dir, cfg)
     timing: Dict[str, float] = {}
     conn = None
+    service = None
 
     try:
         state_path = resolve_path(base_dir, cfg["state_db"]["path"])
@@ -435,7 +450,7 @@ def main() -> None:
             with timed_step(logger, timing, "google_client"):
                 service = setup_google_calendar_client(cfg, base_dir)
 
-            current_time = datetime.datetime.now(datetime.timezone.utc)
+            current_time = datetime.datetime.now(datetime.UTC)
             end_time = current_time + datetime.timedelta(hours=cfg["time_window_hours"])
 
             with timed_step(logger, timing, "calendar_storsalen"):
@@ -476,6 +491,8 @@ def main() -> None:
         logger.error("Error in main: %s", e)
         raise SystemExit(1) from e
     finally:
+        if service is not None:
+            close_google_calendar_client(service)
         if conn is not None:
             conn.close()
         if timing:

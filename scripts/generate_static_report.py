@@ -10,16 +10,24 @@ Bruk:
         --output-img www/graphs/last_48h.png
 """
 import argparse
+import datetime as dt
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from temperature_logger import (
     DEFAULT_DB,
     fetch_readings,
+    fetch_heater_online_counts,
+    fetch_latest_heater_presence_statuses,
     ensure_db,
     plot_history,
+    HeaterOnlineCount,
+    HeaterPresenceStatus,
     Reading,
 )
+
+DISPLAY_TZ = ZoneInfo("Europe/Oslo")
 
 
 def latest_per_source_room(readings: List[Reading]):
@@ -30,7 +38,22 @@ def latest_per_source_room(readings: List[Reading]):
     return latest
 
 
-def render_html(img_rel_path: str, extra_imgs: List[tuple], latest: List[Reading], out_html: Path):
+def format_display_time(value: dt.datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=dt.UTC)
+    else:
+        value = value.astimezone(dt.UTC)
+    return value.astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def render_html(
+    img_rel_path: str,
+    extra_imgs: List[tuple],
+    latest: List[Reading],
+    latest_heater_count: Optional[HeaterOnlineCount],
+    latest_heater_statuses: List[HeaterPresenceStatus],
+    out_html: Path,
+):
     out_html.parent.mkdir(parents=True, exist_ok=True)
 
     def format_temp(value: Optional[float]):
@@ -40,12 +63,35 @@ def render_html(img_rel_path: str, extra_imgs: List[tuple], latest: List[Reading
 
     latest_rows = "".join(
         f"<tr><td>{r.source}</td><td>{r.room}</td><td>{r.temperature_c:.1f}</td>"
-        f"<td>{format_temp(r.target_c)}</td><td>{r.recorded_at.isoformat()}</td></tr>"
+        f"<td>{format_temp(r.target_c)}</td><td>{format_display_time(r.recorded_at)}</td></tr>"
         for r in latest
     )
     extra_sections = "".join(
         f'<h2>{title}</h2><img src="{rel}" alt="{title}">' for title, rel in extra_imgs
     )
+    heater_summary = ""
+    if latest_heater_count is not None:
+        heater_summary = (
+            f"<p>Tilgjengelige Glamox-ovner siste time: "
+            f"{latest_heater_count.online_count} av {latest_heater_count.expected_count}.</p>"
+        )
+    heater_status_rows = "".join(
+        f"<tr><td>{item.alias}</td><td>{'online' if item.online else 'nede'}</td>"
+        f"<td>{format_display_time(item.observed_at) if item.observed_at else '-'}</td>"
+        f"<td>{item.ip or '-'}</td><td>{item.mac or '-'}</td></tr>"
+        for item in latest_heater_statuses
+    )
+    heater_status_section = ""
+    if latest_heater_statuses:
+        heater_status_section = f"""
+  <h2>Ovnstatus Siste Time</h2>
+  <table>
+    <thead><tr><th>Alias</th><th>Status</th><th>Sist Sett</th><th>IP</th><th>MAC</th></tr></thead>
+    <tbody>
+    {heater_status_rows}
+    </tbody>
+  </table>
+"""
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -62,12 +108,15 @@ def render_html(img_rel_path: str, extra_imgs: List[tuple], latest: List[Reading
 </head>
 <body>
   <h1>Temperaturlogg (siste 48 timer)</h1>
-  <p>Siden oppdateres hver time via cron.</p>
+  <p>Siden oppdateres hver time via cron. Alle tider vises i Europe/Oslo.</p>
+  <p><a href="../rust_temp/index.html">Se Rust-versjonen av temperaturrapporten</a></p>
+  {heater_summary}
   <img src="{img_rel_path}" alt="Temperatur vs target">
   {extra_sections}
+  {heater_status_section}
   <h2>Siste målinger</h2>
   <table>
-    <thead><tr><th>Kilde</th><th>Rom</th><th>Målt (C)</th><th>Target (C)</th><th>Tid (UTC)</th></tr></thead>
+    <thead><tr><th>Kilde</th><th>Rom</th><th>Målt (C)</th><th>Target (C)</th><th>Tid (Europe/Oslo)</th></tr></thead>
     <tbody>
     {latest_rows}
     </tbody>
@@ -107,11 +156,18 @@ def main():
     readings_48h = fetch_readings(conn, hours=args.hours)
     readings_7d = fetch_readings(conn, hours=24 * 7)
     readings_30d = fetch_readings(conn, hours=24 * 30)
+    heater_counts_48h = fetch_heater_online_counts(conn, hours=args.hours)
+    latest_heater_statuses = fetch_latest_heater_presence_statuses(conn)
     if not (readings_48h or readings_7d or readings_30d):
         raise SystemExit("Ingen målinger i databasen.")
 
     img_path = Path(args.output_img)
-    plot_history(readings_48h or readings_7d or readings_30d, img_path, max_points=900)
+    plot_history(
+        readings_48h or readings_7d or readings_30d,
+        img_path,
+        max_points=900,
+        heater_counts=heater_counts_48h,
+    )
 
     extra_imgs: List[tuple] = []
     out_dir = Path(args.output_html).parent
@@ -130,6 +186,8 @@ def main():
         img_path.relative_to(out_dir),
         extra_imgs,
         latest_list,
+        heater_counts_48h[-1] if heater_counts_48h else None,
+        latest_heater_statuses,
         Path(args.output_html),
     )
 
