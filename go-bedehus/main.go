@@ -136,7 +136,7 @@ func run() error {
 
 	prayHeatOn := processEvents(logger, events)
 	_ = timing.Track("mill_logic", func() error {
-		checkUpdatePray(logger, millController, cfg, prayHeatOn)
+		checkUpdatePray(logger, store, millController, cfg, prayHeatOn)
 		return nil
 	})
 
@@ -452,19 +452,47 @@ func updateStorsalenGlamox(logger *logging.Logger, client *glamox.Client, temp f
 	logger.Debugf("STORSALEN status: %v", status)
 }
 
-func checkUpdatePray(logger *logging.Logger, controller *mill.Controller, cfg config.Config, heatOn bool) {
+func heatZoneTransitionTarget(
+	logger *logging.Logger,
+	store *state.Store,
+	zone string,
+	heatOn bool,
+	heatOnTemp float64,
+	heatOffTemp float64,
+) (float64, bool) {
+	lastState, err := store.GetHeatZoneState(zone)
+	if err != nil {
+		logger.Errorf("Error reading %s heat state: %v", zone, err)
+		lastState = false
+	}
+	if err := store.SetHeatZoneState(zone, heatOn); err != nil {
+		logger.Errorf("Error saving %s heat state: %v", zone, err)
+	}
+
+	if heatOn == lastState {
+		logger.Infof("%s heat state unchanged (%v); skipping temperature update.", zone, heatOn)
+		return 0, false
+	}
+
+	logger.Infof("%s heat state changed: %v -> %v", zone, lastState, heatOn)
+	if heatOn {
+		return heatOnTemp, true
+	}
+	return heatOffTemp, true
+}
+
+func checkUpdatePray(logger *logging.Logger, store *state.Store, controller *mill.Controller, cfg config.Config, heatOn bool) {
 	if controller == nil {
 		logger.Infof("Mill disabled; skipping PRAY update.")
 		return
 	}
-	var target float64
-	if heatOn {
-		logger.Infof("Set PRAY heat to %.0fC.", cfg.Mill.HeatOnTemp)
-		target = cfg.Mill.HeatOnTemp
-	} else {
-		logger.Infof("Set PRAY heat to %.0fC.", cfg.Mill.HeatOffTemp)
-		target = cfg.Mill.HeatOffTemp
+
+	target, shouldUpdate := heatZoneTransitionTarget(logger, store, "pray", heatOn, cfg.Mill.HeatOnTemp, cfg.Mill.HeatOffTemp)
+	if !shouldUpdate {
+		return
 	}
+
+	logger.Infof("Set PRAY heat to %.0fC.", target)
 	result, err := controller.SetTemperature(target)
 	if err != nil {
 		logger.Errorf("Error interacting with PRAY: %v", err)

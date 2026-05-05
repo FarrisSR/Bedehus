@@ -202,6 +202,15 @@ def open_state_db(path: Path) -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS heat_zone_state (
+            zone TEXT PRIMARY KEY,
+            state INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -223,6 +232,44 @@ def save_relay_state(conn: sqlite3.Connection, state: bool) -> None:
         (1 if state else 0, datetime.datetime.now(datetime.UTC).isoformat()),
     )
     conn.commit()
+
+
+def read_heat_zone_state(conn: sqlite3.Connection, zone: str) -> bool:
+    row = conn.execute("SELECT state FROM heat_zone_state WHERE zone = ?", (zone,)).fetchone()
+    if row is None:
+        return False
+    return bool(row[0])
+
+
+def save_heat_zone_state(conn: sqlite3.Connection, zone: str, state: bool) -> None:
+    conn.execute(
+        """
+        INSERT INTO heat_zone_state (zone, state, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(zone) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at
+        """,
+        (zone, 1 if state else 0, datetime.datetime.now(datetime.UTC).isoformat()),
+    )
+    conn.commit()
+
+
+def heat_zone_transition_target(
+    logger: logging.Logger,
+    conn: sqlite3.Connection,
+    zone: str,
+    heat_on: bool,
+    heat_on_temp: float,
+    heat_off_temp: float,
+) -> Optional[float]:
+    last_state = read_heat_zone_state(conn, zone)
+    save_heat_zone_state(conn, zone, heat_on)
+
+    if heat_on == last_state:
+        logger.info("%s heat state unchanged (%s); skipping temperature update.", zone, heat_on)
+        return None
+
+    logger.info("%s heat state changed: %s -> %s", zone, last_state, heat_on)
+    return heat_on_temp if heat_on else heat_off_temp
 
 
 def save_calendar_cache(
@@ -348,13 +395,23 @@ def update_storsalen_glamox(logger: logging.Logger, cfg: Dict[str, Any], heat_on
     logger.info("STORSALEN status: %s", ctrl.get_control_status())
 
 
-def check_update_pray(logger: logging.Logger, cfg: Dict[str, Any], heat_on: bool) -> None:
+def check_update_pray(logger: logging.Logger, conn: sqlite3.Connection, cfg: Dict[str, Any], heat_on: bool) -> None:
     if not cfg["mill"].get("enabled", True):
         logger.info("Mill disabled; skipping PRAY update.")
         return
 
+    target = heat_zone_transition_target(
+        logger,
+        conn,
+        "pray",
+        heat_on,
+        cfg["mill"]["heat_on_temp"],
+        cfg["mill"]["heat_off_temp"],
+    )
+    if target is None:
+        return
+
     controller = mill_controller(ip_address=cfg["mill"]["ip"], temp_type=cfg["mill"]["temp_type"])
-    target = cfg["mill"]["heat_on_temp"] if heat_on else cfg["mill"]["heat_off_temp"]
     logger.info("Set PRAY heat to %.0fC.", target)
     result = controller.set_temperature(target)
     logger.info("PRAY%s", result)
@@ -485,7 +542,7 @@ def main() -> None:
             pray_heat_on = process_events(logger, pray_events)
 
             with timed_step(logger, timing, "mill_logic"):
-                check_update_pray(logger, cfg, pray_heat_on)
+                check_update_pray(logger, conn, cfg, pray_heat_on)
 
     except Exception as e:
         logger.error("Error in main: %s", e)

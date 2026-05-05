@@ -50,6 +50,17 @@ func (s *Store) init() error {
 	}
 
 	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS heat_zone_state (
+			zone TEXT PRIMARY KEY,
+			state INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS calendar_cache (
 			calendar_id TEXT NOT NULL,
 			window_start TEXT NOT NULL,
@@ -91,6 +102,31 @@ func (s *Store) SetRelayState(state bool) error {
 		VALUES (1, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
 	`, value, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetHeatZoneState(zone string) (bool, error) {
+	row := s.db.QueryRow("SELECT state FROM heat_zone_state WHERE zone = ?", zone)
+	var state int
+	if err := row.Scan(&state); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+	return state != 0, nil
+}
+
+func (s *Store) SetHeatZoneState(zone string, state bool) error {
+	value := 0
+	if state {
+		value = 1
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO heat_zone_state (zone, state, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(zone) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
+	`, zone, value, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 

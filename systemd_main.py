@@ -64,7 +64,7 @@ def run_cycle(logger, conn, cfg: Dict[str, Any], service) -> None:
     pray_heat_on = process_events(logger, pray_events)
 
     with timed_step(logger, timing, "mill_logic"):
-        check_update_pray(logger, cfg, pray_heat_on)
+        check_update_pray(logger, conn, cfg, pray_heat_on)
 
     pretty = ", ".join(f"{k}={v:.1f}ms" for k, v in sorted(timing.items(), key=lambda kv: kv[1], reverse=True))
     logger.info("Timing summary: %s", pretty)
