@@ -28,6 +28,30 @@ jobs:
       - name: Test
         run: go test ./...
 
+  python:
+    name: Python lint + test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install pytest requests
+
+      - name: Compile check
+        run: |
+          python -m compileall -q \
+            main.py systemd_main.py on.py off.py \
+            glamox/ mill_controller/ sr201/ common/ scripts/
+
+      - name: Test
+        run: pytest tests/ -v
+
   rust:
     name: Rust test + clippy
     runs-on: ubuntu-latest

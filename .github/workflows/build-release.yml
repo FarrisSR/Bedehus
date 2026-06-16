@@ -37,6 +37,22 @@ jobs:
       - name: Build armv6 binaries
         run: make build-pi1
 
+      - name: Install QEMU
+        run: sudo apt-get install -y qemu-user-static
+
+      - name: Smoke test binaries
+        run: |
+          for binary in dist/bedehus-linux-armv6 dist/bedehus-on-linux-armv6 dist/bedehus-off-linux-armv6; do
+            echo "=== $binary ==="
+            output=$(qemu-arm-static "$binary" 2>&1) || true
+            echo "$output" | head -5
+            if echo "$output" | grep -qi "exec format error\|illegal instruction"; then
+              echo "FAIL: arkitekturfeil i $binary"
+              exit 1
+            fi
+            echo "OK"
+          done
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
