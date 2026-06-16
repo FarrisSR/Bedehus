@@ -1,4 +1,5 @@
 mod arp;
+mod controller;
 mod db;
 mod energy_report;
 mod font;
@@ -68,6 +69,22 @@ enum Command {
         output_img: PathBuf,
         #[arg(long, default_value = "www/energy.html")]
         output_html: PathBuf,
+    },
+    /// Kjør én runde av varmestyringslogikken (foreløpig med no-op drivere)
+    ControllerRunOnce {
+        #[arg(long, default_value = "config/config.json")]
+        config: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Kjør varmestyringslogikken i en vedvarende løkke for systemd (foreløpig med no-op drivere)
+    ControllerDaemon {
+        #[arg(long, default_value = "config/config.json")]
+        config: PathBuf,
+        #[arg(long)]
+        interval_seconds: Option<u64>,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -165,6 +182,24 @@ fn main() -> Result<()> {
                     output_html,
                 },
             )?;
+        }
+        Command::ControllerRunOnce { config, dry_run } => {
+            controller::controller_run_once(&controller::ControllerArgs {
+                config,
+                interval_seconds: None,
+                dry_run,
+            })?;
+        }
+        Command::ControllerDaemon {
+            config,
+            interval_seconds,
+            dry_run,
+        } => {
+            controller::controller_daemon(&controller::ControllerArgs {
+                config,
+                interval_seconds,
+                dry_run,
+            })?;
         }
     }
     Ok(())

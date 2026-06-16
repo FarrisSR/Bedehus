@@ -1,0 +1,16 @@
+[Unit]
+Description=Bedehus Rust Heating Controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/bedehus
+ExecStart=/home/pi/bedehus/rust-bedehus/target/release/bedehus-rs controller-daemon --config config/config.json --dry-run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
