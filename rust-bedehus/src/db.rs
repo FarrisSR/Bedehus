@@ -125,3 +125,60 @@ pub fn open_energy_db(path: &Path) -> Result<Connection> {
     conn.execute_batch(CREATE_ENERGY_RECORDED_AT_INDEX_SQL)?;
     Ok(conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table_names(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn open_temperature_db_creates_expected_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open_temperature_db(&dir.path().join("test.sqlite")).unwrap();
+        let tables = table_names(&conn);
+        assert!(tables.contains(&"readings".to_string()));
+        assert!(tables.contains(&"heater_presence_events".to_string()));
+        assert!(tables.contains(&"heater_presence_hourly".to_string()));
+    }
+
+    #[test]
+    fn open_temperature_db_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sqlite");
+        open_temperature_db(&path).unwrap();
+        open_temperature_db(&path).unwrap();
+    }
+
+    #[test]
+    fn open_temperature_db_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dir").join("test.sqlite");
+        assert!(open_temperature_db(&path).is_ok());
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn open_energy_db_creates_expected_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open_energy_db(&dir.path().join("energy.sqlite")).unwrap();
+        let tables = table_names(&conn);
+        assert!(tables.contains(&"energy_readings".to_string()));
+    }
+
+    #[test]
+    fn open_energy_db_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("energy.sqlite");
+        open_energy_db(&path).unwrap();
+        open_energy_db(&path).unwrap();
+    }
+}

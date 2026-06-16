@@ -938,6 +938,133 @@ pub fn controller_run_once(args: &ControllerArgs) -> Result<()> {
     run_cycle(&runtime.conn, &runtime.cfg, args.dry_run)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn minimal_valid_config() -> Config {
+        Config {
+            google: GoogleConfig {
+                key_file: "key.json".to_string(),
+                calendar_id: "cal@group.calendar.google.com".to_string(),
+                pray_id: "pray@group.calendar.google.com".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn validate_config_defaults_fail_missing_required_fields() {
+        assert!(validate_config(&Config::default()).is_err());
+    }
+
+    #[test]
+    fn validate_config_valid_config_passes() {
+        assert!(validate_config(&minimal_valid_config()).is_ok());
+    }
+
+    #[test]
+    fn validate_config_empty_calendar_id_fails() {
+        let mut cfg = minimal_valid_config();
+        cfg.google.calendar_id = String::new();
+        assert!(validate_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_config_sr201_enabled_requires_ip() {
+        let mut cfg = minimal_valid_config();
+        cfg.sr201.enabled = true;
+        cfg.sr201.relay = 1;
+        // ip is empty
+        assert!(validate_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_config_sr201_relay_out_of_range_fails() {
+        let mut cfg = minimal_valid_config();
+        cfg.sr201.enabled = true;
+        cfg.sr201.ip = "192.168.1.1".to_string();
+        cfg.sr201.relay = 0;
+        assert!(validate_config(&cfg).is_err());
+
+        cfg.sr201.relay = 9;
+        assert!(validate_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_config_sr201_enabled_zero_port_fails() {
+        let mut cfg = minimal_valid_config();
+        cfg.sr201.enabled = true;
+        cfg.sr201.ip = "192.168.1.1".to_string();
+        cfg.sr201.relay = 1;
+        cfg.sr201.port = 0;
+        assert!(validate_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn resolve_path_absolute_is_unchanged() {
+        let result = resolve_path(Path::new("/some/base"), "/absolute/path");
+        assert_eq!(result, PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn resolve_path_relative_is_joined_to_base() {
+        let result = resolve_path(Path::new("/some/base"), "relative/path");
+        assert_eq!(result, PathBuf::from("/some/base/relative/path"));
+    }
+
+    #[test]
+    fn flatten_config_nested_object() {
+        let value = serde_json::json!({"a": {"b": 1, "c": true}, "d": "hello"});
+        let mut out = BTreeMap::new();
+        flatten_config("", &value, &mut out);
+        assert_eq!(out["a.b"], "1");
+        assert_eq!(out["a.c"], "true");
+        assert_eq!(out["d"], "\"hello\"");
+    }
+
+    #[test]
+    fn flatten_config_with_prefix() {
+        let value = serde_json::json!({"x": 42});
+        let mut out = BTreeMap::new();
+        flatten_config("root", &value, &mut out);
+        assert_eq!(out["root.x"], "42");
+    }
+
+    #[test]
+    fn config_diff_summary_no_changes() {
+        let cfg = minimal_valid_config();
+        let result = config_diff_summary(&cfg, &cfg, 10);
+        assert_eq!(result, "no config value changes");
+    }
+
+    #[test]
+    fn config_diff_summary_detects_changed_field() {
+        let old = minimal_valid_config();
+        let mut new = old.clone();
+        new.time_window_hours = 4;
+        let result = config_diff_summary(&old, &new, 10);
+        assert!(result.contains("time_window_hours"));
+        assert!(result.contains("2"));
+        assert!(result.contains("4"));
+    }
+
+    #[test]
+    fn config_diff_summary_truncates_at_max_items() {
+        let old = minimal_valid_config();
+        let mut new = old.clone();
+        new.time_window_hours = 4;
+        new.sr201.enabled = true;
+        new.sr201.ip = "1.2.3.4".to_string();
+        new.mill.heat_on_temp = 22.0;
+        new.glamox.heat_on_temp = 23.0;
+        let result = config_diff_summary(&old, &new, 2);
+        assert!(result.contains("more"));
+    }
+}
+
 pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
     let base_dir = env::current_dir()?;
     let config_path = if args.config.is_absolute() {
