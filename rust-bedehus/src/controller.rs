@@ -525,8 +525,7 @@ fn fetch_google_calendar_events(
     let client = google_http_client()?;
     let token = fetch_google_access_token(&client, cfg)?;
     let url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/{}/events",
-        calendar_id
+        "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
     );
     let response = client
         .get(url)

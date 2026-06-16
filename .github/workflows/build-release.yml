@@ -28,6 +28,12 @@ jobs:
           go-version-file: go-bedehus/go.mod
           cache: true
 
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
       - name: Build armv6 binaries
         run: make build-pi1
 

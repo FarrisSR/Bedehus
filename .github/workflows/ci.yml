@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [master, glamox]
+  pull_request:
+
+jobs:
+  go:
+    name: Go vet
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go-bedehus
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go-bedehus/go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  rust:
+    name: Rust test + clippy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust-bedehus
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-bedehus
+
+      - name: Test
+        run: cargo test
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
