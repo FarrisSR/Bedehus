@@ -393,21 +393,29 @@ fn plot_temperature_history(
     }
 
     if let Some(counts) = heater_counts {
+        let online_series = step_points(
+            &counts
+                .iter()
+                .map(|item| (item.recorded_at, item.online_count as f64))
+                .collect::<Vec<_>>(),
+        );
         chart
             .draw_secondary_series(LineSeries::new(
-                counts
-                    .iter()
-                    .map(|item| (item.recorded_at, item.online_count as f64)),
+                online_series.into_iter(),
                 GREEN.stroke_width(2),
             ))?
             .label("Ovner online")
             .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], GREEN));
 
+        let expected_series = step_points(
+            &counts
+                .iter()
+                .map(|item| (item.recorded_at, item.expected_count as f64))
+                .collect::<Vec<_>>(),
+        );
         chart
             .draw_secondary_series(LineSeries::new(
-                counts
-                    .iter()
-                    .map(|item| (item.recorded_at, item.expected_count as f64)),
+                expected_series.into_iter(),
                 BLACK.mix(0.4).stroke_width(1),
             ))?
             .label("Forventede ovner")
@@ -421,6 +429,21 @@ fn plot_temperature_history(
         .draw()?;
     root.present()?;
     Ok(())
+}
+
+fn step_points(points: &[(DateTime<Utc>, f64)]) -> Vec<(DateTime<Utc>, f64)> {
+    if points.len() < 2 {
+        return points.to_vec();
+    }
+    let mut result = Vec::with_capacity(points.len() * 2 - 1);
+    result.push(points[0]);
+    for window in points.windows(2) {
+        let previous = window[0];
+        let current = window[1];
+        result.push((current.0, previous.1));
+        result.push(current);
+    }
+    result
 }
 
 fn split_temp_segments(readings: &[TempReading], max_points: usize) -> Vec<Vec<TempReading>> {
