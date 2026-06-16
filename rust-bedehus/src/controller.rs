@@ -1,13 +1,20 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::thread;
 use std::time::{Duration as StdDuration, Instant, SystemTime};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, Local, Utc};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use reqwest::blocking::Client;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,7 +55,9 @@ pub struct GoogleConfig {
 pub struct Sr201Config {
     pub enabled: bool,
     pub ip: String,
+    pub port: u16,
     pub relay: i64,
+    pub timeout_seconds: u64,
     pub relay_pause_seconds: i64,
 }
 
@@ -120,7 +129,9 @@ impl Default for Sr201Config {
         Self {
             enabled: false,
             ip: String::new(),
+            port: 6722,
             relay: 1,
+            timeout_seconds: 5,
             relay_pause_seconds: 5,
         }
     }
@@ -159,7 +170,9 @@ impl Default for CacheConfig {
 
 impl Default for SystemdConfig {
     fn default() -> Self {
-        Self { interval_seconds: 300 }
+        Self {
+            interval_seconds: 300,
+        }
     }
 }
 
@@ -181,6 +194,47 @@ struct Runtime {
 struct CalendarEvent {
     start: String,
     summary: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleServiceAccountKey {
+    client_email: String,
+    private_key: String,
+    token_uri: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GoogleJwtClaims {
+    iss: String,
+    scope: String,
+    aud: String,
+    exp: i64,
+    iat: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleTokenResponse {
+    access_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleCalendarEventsResponse {
+    #[serde(default)]
+    items: Vec<GoogleCalendarEventItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleCalendarEventItem {
+    start: GoogleCalendarEventStart,
+    #[serde(default)]
+    summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleCalendarEventStart {
+    #[serde(rename = "dateTime")]
+    date_time: Option<String>,
+    date: Option<String>,
 }
 
 fn log_line(level: &str, message: impl AsRef<str>) {
@@ -228,6 +282,15 @@ fn load_config(base_dir: &Path, config_path: &Path) -> Result<Config> {
 }
 
 fn validate_config(cfg: &Config) -> Result<()> {
+    if cfg.google.key_file.trim().is_empty() {
+        return Err(anyhow!("google.key_file is required"));
+    }
+    if cfg.google.calendar_id.trim().is_empty() {
+        return Err(anyhow!("google.calendar_id is required"));
+    }
+    if cfg.google.pray_id.trim().is_empty() {
+        return Err(anyhow!("google.pray_id is required"));
+    }
     if cfg.sr201.enabled {
         if cfg.sr201.ip.trim().is_empty() {
             return Err(anyhow!("sr201.ip is required when sr201 is enabled"));
@@ -236,6 +299,14 @@ fn validate_config(cfg: &Config) -> Result<()> {
             return Err(anyhow!(
                 "sr201.relay must be 1-8 when sr201 is enabled, got {}",
                 cfg.sr201.relay
+            ));
+        }
+        if cfg.sr201.port == 0 {
+            return Err(anyhow!("sr201.port must be > 0 when sr201 is enabled"));
+        }
+        if cfg.sr201.timeout_seconds == 0 {
+            return Err(anyhow!(
+                "sr201.timeout_seconds must be > 0 when sr201 is enabled"
             ));
         }
     }
@@ -282,7 +353,9 @@ fn load_runtime(base_dir: &Path, config_path: &Path) -> Result<Runtime> {
 
 fn read_relay_state(conn: &Connection) -> Result<bool> {
     let row = conn
-        .query_row("SELECT state FROM relay_state WHERE id = 1", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT state FROM relay_state WHERE id = 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
         .optional()?;
     Ok(row.unwrap_or(0) != 0)
 }
@@ -396,15 +469,92 @@ fn load_calendar_cache(
         .transpose()
 }
 
+fn google_http_client() -> Result<Client> {
+    Ok(Client::builder()
+        .timeout(StdDuration::from_secs(20))
+        .build()?)
+}
+
+fn fetch_google_access_token(client: &Client, cfg: &Config) -> Result<String> {
+    let key_text = fs::read_to_string(&cfg.google.key_file).with_context(|| {
+        format!(
+            "Kunne ikke lese Google service account key {}",
+            cfg.google.key_file
+        )
+    })?;
+    let key: GoogleServiceAccountKey = serde_json::from_str(&key_text)
+        .with_context(|| format!("Ugyldig JSON i Google key file {}", cfg.google.key_file))?;
+
+    let token_uri = key
+        .token_uri
+        .unwrap_or_else(|| "https://oauth2.googleapis.com/token".to_string());
+    let now = Utc::now().timestamp();
+    let claims = GoogleJwtClaims {
+        iss: key.client_email,
+        scope: cfg.google.scopes.join(" "),
+        aud: token_uri.clone(),
+        iat: now,
+        exp: now + 3600,
+    };
+
+    let assertion = encode(
+        &Header::new(Algorithm::RS256),
+        &claims,
+        &EncodingKey::from_rsa_pem(key.private_key.as_bytes())?,
+    )?;
+
+    let response = client
+        .post(&token_uri)
+        .form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("assertion", assertion.as_str()),
+        ])
+        .send()?
+        .error_for_status()?
+        .json::<GoogleTokenResponse>()?;
+
+    Ok(response.access_token)
+}
+
 fn fetch_google_calendar_events(
-    _cfg: &Config,
+    cfg: &Config,
     calendar_id: &str,
-    _start_time: DateTime<Utc>,
-    _end_time: DateTime<Utc>,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
 ) -> Result<Vec<CalendarEvent>> {
-    Err(anyhow!(
-        "Google Calendar fetch not implemented in Rust yet for {calendar_id}"
-    ))
+    let client = google_http_client()?;
+    let token = fetch_google_access_token(&client, cfg)?;
+    let url = format!(
+        "https://www.googleapis.com/calendar/v3/calendars/{}/events",
+        calendar_id
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .query(&[
+            ("timeMin", start_time.to_rfc3339().replace("+00:00", "Z")),
+            ("timeMax", end_time.to_rfc3339().replace("+00:00", "Z")),
+            ("singleEvents", "true".to_string()),
+            ("orderBy", "startTime".to_string()),
+        ])
+        .send()?
+        .error_for_status()?
+        .json::<GoogleCalendarEventsResponse>()?;
+
+    Ok(response
+        .items
+        .into_iter()
+        .map(|item| CalendarEvent {
+            start: item
+                .start
+                .date_time
+                .or(item.start.date)
+                .unwrap_or_else(|| "unknown".to_string()),
+            summary: item
+                .summary
+                .unwrap_or_else(|| "No Summary Available".to_string()),
+        })
+        .collect())
 }
 
 fn get_calendar_events_with_fallback(
@@ -462,7 +612,10 @@ fn process_events(zone: &str, events: &[CalendarEvent]) -> bool {
 
     log_line(
         "INFO",
-        format!("Found {} upcoming event(s) for {zone}; heat required", events.len()),
+        format!(
+            "Found {} upcoming event(s) for {zone}; heat required",
+            events.len()
+        ),
     );
     for event in events {
         log_line(
@@ -471,6 +624,76 @@ fn process_events(zone: &str, events: &[CalendarEvent]) -> bool {
         );
     }
     true
+}
+
+fn sr201_addr(cfg: &Config) -> String {
+    format!("{}:{}", cfg.sr201.ip, cfg.sr201.port)
+}
+
+fn sr201_send_command(cfg: &Config, command: &str) -> Result<String> {
+    let timeout = StdDuration::from_secs(cfg.sr201.timeout_seconds);
+    let addr = sr201_addr(cfg);
+    let socket_addr = addr
+        .to_socket_addrs()
+        .with_context(|| format!("Kunne ikke slå opp SR201-adresse {addr}"))?
+        .next()
+        .ok_or_else(|| anyhow!("Ingen gyldig SR201-adresse funnet for {addr}"))?;
+    let mut stream = TcpStream::connect_timeout(&socket_addr, timeout)
+        .with_context(|| format!("Kunne ikke koble til SR201 på {addr}"))?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.write_all(command.as_bytes())?;
+
+    let mut buf = [0_u8; 4096];
+    let n = stream.read(&mut buf)?;
+    Ok(String::from_utf8_lossy(&buf[..n]).trim().to_string())
+}
+
+fn sr201_status(cfg: &Config) -> Result<bool> {
+    let resp = sr201_send_command(cfg, "00")?;
+    let idx = (cfg.sr201.relay - 1) as usize;
+    if idx >= resp.len() {
+        return Err(anyhow!(
+            "relay {} out of range (response length {})",
+            cfg.sr201.relay,
+            resp.len()
+        ));
+    }
+    Ok(resp.as_bytes()[idx] == b'1')
+}
+
+fn sr201_close_relay(cfg: &Config) -> Result<()> {
+    sr201_send_command(cfg, &format!("1{}", cfg.sr201.relay))?;
+    Ok(())
+}
+
+fn sr201_open_relay(cfg: &Config) -> Result<()> {
+    sr201_send_command(cfg, &format!("2{}", cfg.sr201.relay))?;
+    Ok(())
+}
+
+fn sr201_sleep_pause(cfg: &Config) {
+    thread::sleep(StdDuration::from_secs(cfg.sr201.relay_pause_seconds as u64));
+}
+
+fn sr201_heat_on(cfg: &Config) -> Result<()> {
+    sr201_close_relay(cfg)?;
+    sr201_sleep_pause(cfg);
+    sr201_open_relay(cfg)?;
+    sr201_sleep_pause(cfg);
+    sr201_close_relay(cfg)?;
+    Ok(())
+}
+
+fn sr201_heat_off(cfg: &Config) -> Result<()> {
+    sr201_close_relay(cfg)?;
+    sr201_sleep_pause(cfg);
+    sr201_open_relay(cfg)?;
+    sr201_sleep_pause(cfg);
+    sr201_close_relay(cfg)?;
+    sr201_sleep_pause(cfg);
+    sr201_open_relay(cfg)?;
+    Ok(())
 }
 
 fn update_storsalen_glamox(cfg: &Config, heat_on: bool, dry_run: bool) {
@@ -507,7 +730,8 @@ fn check_update_pray(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bo
         heat_on,
         cfg.mill.heat_on_temp,
         cfg.mill.heat_off_temp,
-    )? else {
+    )?
+    else {
         return Ok(());
     };
 
@@ -522,7 +746,12 @@ fn check_update_pray(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bo
     Ok(())
 }
 
-fn check_relay_state(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bool) -> Result<Option<bool>> {
+fn check_relay_state(
+    conn: &Connection,
+    cfg: &Config,
+    heat_on: bool,
+    dry_run: bool,
+) -> Result<Option<bool>> {
     let last_state = read_relay_state(conn)?;
     log_line("INFO", format!("Last state: {last_state}"));
 
@@ -536,28 +765,49 @@ fn check_relay_state(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bo
         return Ok(None);
     }
 
+    let relay_status = sr201_status(cfg)?;
     save_relay_state(conn, heat_on)?;
+
     if heat_on != last_state {
         log_line("INFO", "Change of state detected");
+    }
+
+    if heat_on {
+        if !relay_status {
+            log_line(
+                "INFO",
+                format!(
+                    "Turning heat on via SR201 relay {}{}.",
+                    cfg.sr201.relay,
+                    if dry_run { " (dry-run)" } else { "" }
+                ),
+            );
+            if !dry_run {
+                sr201_heat_on(cfg)?;
+            }
+            return Ok(Some(true));
+        }
+
+        log_line("INFO", "Relay is already on, not turning heat on.");
+        return Ok(None);
+    }
+
+    if relay_status {
         log_line(
             "INFO",
             format!(
-                "SR201 Rust driver not implemented yet; would set relay {} to {}{}",
+                "Turning heat off via SR201 relay {}{}.",
                 cfg.sr201.relay,
-                if heat_on { "on" } else { "off" },
                 if dry_run { " (dry-run)" } else { "" }
             ),
         );
-        return Ok(Some(heat_on));
+        if !dry_run {
+            sr201_heat_off(cfg)?;
+        }
+        return Ok(Some(false));
     }
 
-    log_line(
-        "INFO",
-        format!(
-            "Relay state unchanged ({heat_on}); no SR201 action needed{}",
-            if dry_run { " (dry-run)" } else { "" }
-        ),
-    );
+    log_line("INFO", "Relay is already off, not turning heat off.");
     Ok(None)
 }
 
@@ -577,7 +827,13 @@ fn run_cycle(conn: &Connection, cfg: &Config, dry_run: bool) -> Result<()> {
     let end_time = current_time + Duration::hours(cfg.time_window_hours);
 
     let events = timed(&mut timing, "calendar_storsalen", || {
-        get_calendar_events_with_fallback(conn, cfg, &cfg.google.calendar_id, current_time, end_time)
+        get_calendar_events_with_fallback(
+            conn,
+            cfg,
+            &cfg.google.calendar_id,
+            current_time,
+            end_time,
+        )
     })?;
     let heat_on = process_events("storsalen", &events);
 
@@ -646,8 +902,14 @@ fn config_diff_summary(old_cfg: &Config, new_cfg: &Config, max_items: usize) -> 
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
     for key in keys {
-        let old_val = old_flat.get(&key).cloned().unwrap_or_else(|| "<missing>".to_string());
-        let new_val = new_flat.get(&key).cloned().unwrap_or_else(|| "<missing>".to_string());
+        let old_val = old_flat
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| "<missing>".to_string());
+        let new_val = new_flat
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| "<missing>".to_string());
         if old_val != new_val {
             changes.push(format!("{key}: {old_val} -> {new_val}"));
         }
@@ -707,9 +969,14 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
 
     while !stop_event.load(Ordering::Relaxed) {
         let current_mtime = file_mtime(&config_path);
-        let config_file_changed = current_mtime.is_some() && config_mtime.is_some() && current_mtime != config_mtime;
+        let config_file_changed =
+            current_mtime.is_some() && config_mtime.is_some() && current_mtime != config_mtime;
         if reload_event.swap(false, Ordering::Relaxed) || config_file_changed {
-            let reason = if config_file_changed { "config file changed" } else { "SIGHUP" };
+            let reason = if config_file_changed {
+                "config file changed"
+            } else {
+                "SIGHUP"
+            };
             log_line("INFO", format!("Reloading runtime config ({reason})..."));
             match load_runtime(&base_dir, &args.config) {
                 Ok(new_runtime) => {
@@ -723,7 +990,10 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
                     log_line("INFO", "Runtime config reload completed");
                 }
                 Err(err) => {
-                    log_line("WARN", format!("Config reload failed; keeping current runtime: {err:#}"));
+                    log_line(
+                        "WARN",
+                        format!("Config reload failed; keeping current runtime: {err:#}"),
+                    );
                 }
             }
         }

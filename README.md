@@ -59,6 +59,22 @@ go build -o bedehus .
 ```
 
 
+
+## Lokale mock-tjenester
+
+For testing uten ekte maskinvare finnes to språkagnostiske mock-servere i `scripts/`:
+- `mock_sr201_server.py`: emulerer SR201 TCP-protokollen (`00`, `1R`, `2R`).
+- `mock_mill_controller.py`: emulerer Mill-kontrollerens HTTP-endepunkter (`POST /set-temperature`, `GET /control-status`).
+
+Eksempel:
+
+```
+python3 scripts/mock_sr201_server.py --port 16722 --initial-state 10000000
+python3 scripts/mock_mill_controller.py --port 18080 --target 17 --current-temperature 16.5
+```
+
+Disse kan brukes fra Python-, Go- og Rust-variantene ved å peke konfigurasjonen til `127.0.0.1:<port>`.
+
 ## ARP-overvåkning av ovner
 
 For lokal overvåkning av ARP-synlighet (f.eks. Glamox-ovner) finnes `scripts/arp_presence_logger.py`.
