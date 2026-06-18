@@ -16,7 +16,7 @@ set -euo pipefail
 
 # --- Konfigurasjon (kan overrides med miljøvariabler) ---
 REPO="${BEDEHUS_REPO:-FarrisSR/Bedehus}"
-INSTALL_DIR="${BEDEHUS_INSTALL_DIR:-/home/pi/bedehus}"
+INSTALL_DIR="${BEDEHUS_INSTALL_DIR:-/home/runo/bedehus}"
 VERSION_FILE="${BEDEHUS_VERSION_FILE:-/var/lib/bedehus/installed_version}"
 TOKEN_FILE="${BEDEHUS_TOKEN_FILE:-/etc/bedehus/github_token}"
 # Romskilt liste over systemd-tjenester som restartes etter oppdatering
