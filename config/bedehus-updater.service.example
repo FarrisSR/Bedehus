@@ -1,0 +1,16 @@
+[Unit]
+Description=Bedehus auto-update (sjekk GitHub Releases)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/lib/bedehus/auto_update.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bedehus-updater
+
+# Valgfritt: overstyr konfigurasjon via miljøvariabler
+# Environment=BEDEHUS_SERVICES=bedehus bedehus-rust
+# Environment=BEDEHUS_INSTALL_DIR=/home/pi/bedehus

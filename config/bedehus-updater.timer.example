@@ -1,0 +1,15 @@
+[Unit]
+Description=Bedehus auto-update timer
+
+[Timer]
+# Vent 2 minutter etter boot før første sjekk
+OnBootSec=2min
+# Sjekk deretter hvert 10. minutt
+OnUnitActiveSec=10min
+# Tilfeldig forsinkelse på opptil 60 sek (nyttig ved flere Pi-er)
+RandomizedDelaySec=60
+# Kjør umiddelbart neste gang dersom Pi var av under planlagt kjøring
+Persistent=true
+
+[Install]
+WantedBy=timers.target
