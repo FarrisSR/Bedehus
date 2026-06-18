@@ -3,60 +3,90 @@
 ## 1. Pre-release (local)
 - Ensure branch is clean: `git status`
 - Pull latest: `git pull --rebase`
-- Verify Go + Python sanity:
-  - `cd go-bedehus && go test ./...`
-  - `python3 -m py_compile main.py`
-- Build all Go targets:
+- Verify Go, Rust og Python lokalt:
+  - `cd go-bedehus && go vet ./... && go test ./...`
+  - `cd rust-bedehus && cargo test && cargo clippy -- -D warnings`
+  - `python3 -m compileall -q main.py systemd_main.py glamox/ mill_controller/ sr201/ common/ scripts/`
+  - `pytest tests/ -v`
+- Build og røyktest lokalt (valgfritt, CI gjør dette automatisk):
   - `cd go-bedehus && make build-all`
+  - `cd rust-bedehus && cargo build --release`
 
-## 2. Package Artifacts
-- Confirm required binaries exist in `go-bedehus/dist/`:
-  - `bedehus-linux-amd64`
-  - `bedehus-on-linux-amd64`
-  - `bedehus-off-linux-amd64`
-  - (and relevant ARM variants for target hardware)
-- Record exact commit to deploy:
-  - `git rev-parse --short HEAD`
+## 2. CI-verifisering
+CI-pipelinene kjøres automatisk ved tagging. Bekreft at alle jobber er grønne
+på GitHub Actions før du går videre:
+- **ci.yml** (push/PR): Go vet + test, Python lint + test, Rust test + clippy
+- **build-release.yml** (Go): vet → test → bygg armv6 → QEMU røyktest → release
+- **build-release-rust.yml** (Rust): test + clippy → bygg armv6 → QEMU røyktest → release
 
-## 3. Target Host Prep
-- Verify local (non-git) runtime files exist on target host:
+## 3. Tag og release
+- Velg versjonsnummer etter [SemVer](https://semver.org/): `vMAJOR.MINOR.PATCH`
+- Tag og push:
+  ```bash
+  git tag v1.2.3
+  git push origin v1.2.3
+  ```
+- Verifiser at GitHub Release ble opprettet med alle forventede assets:
+  - `bedehus-linux-armv6`
+  - `bedehus-on-linux-armv6`
+  - `bedehus-off-linux-armv6`
+  - `bedehus-rs-linux-armv6`
+- Record commit: `git rev-parse --short HEAD`
+
+## 4. Deploy til Pi (automatisk via auto-updater)
+Pi-en poller GitHub Releases hvert 10. minutt og installerer automatisk.
+Vent til timeren trigger, eller kjør manuelt:
+```bash
+sudo systemctl start bedehus-updater.service
+journalctl -u bedehus-updater -f
+```
+Forventet logg ved vellykket oppdatering:
+```
+bedehus-updater INFO  Ny versjon tilgjengelig: v1.2.2 → v1.2.3
+bedehus-updater INFO  Installerte bedehus → /home/pi/bedehus/bedehus
+bedehus-updater INFO  Restartet bedehus
+bedehus-updater INFO  Oppdatering fullført: v1.2.3 (4 installert)
+```
+
+## 5. Target Host Prep (kun første gang / ved schemaendringer)
+- Verifiser at disse filene finnes på Pi-en (aldri i git):
   - `config/config.json`
   - `service-account-key.json`
   - `secrets.json`
-- Confirm safe config toggles before start:
+- Bekreft konfigverdier før start:
   - `sr201.enabled`
-  - `timing.enabled`
   - `cache.google_max_age_hours`
-- Backup currently running binaries before replacing.
 
-## 4. Deploy
-- Copy binaries to target host.
-- Replace running binaries atomically (new filename + symlink swap, or stop/copy/start).
-- Restart service/cron job.
+## 6. Post-deploy validering
+- Kjør én manuell dry-run på Pi-en:
+  ```bash
+  /home/pi/bedehus/bedehus -config config/config.json
+  ```
+- Hvis `sr201.enabled=true`, verifiser reléatferd:
+  ```bash
+  /home/pi/bedehus/bedehus-on -config config/config.json
+  /home/pi/bedehus/bedehus-off -config config/config.json
+  ```
+- Valider logger (`journalctl -u bedehus -n 50`):
+  - Ingen Google auth/nettverksfeil
+  - Ingen Glamox/Mill-feil
+  - `Timing summary` til stede
 
-## 5. Post-deploy Validation
-- Run one manual dry check:
-  - `./bedehus -config config/config.json`
-- If `sr201.enabled=true`, verify relay behavior using:
-  - `./bedehus-on -config config/config.json`
-  - `./bedehus-off -config config/config.json`
-- Validate logs:
-  - No Google auth/network errors
-  - No Glamox/Mill errors
-  - `Timing summary` present when `timing.enabled=true`
-- Validate expected room state (Storsalen/Bønnerom) after run.
+## 7. Rollback
+Auto-oppdateren lagrer `.prev`-kopi av hver binary. Manuell rollback:
+```bash
+cd /home/pi/bedehus
+for f in bedehus bedehus-on bedehus-off bedehus-rs; do
+    [[ -f "$f.prev" ]] && mv "$f.prev" "$f"
+done
+sudo systemctl restart bedehus
+```
+Verifiser at loggene er normale etter rollback.
+Dokumenter årsak og commit-hash for feilen.
 
-## 6. Rollback Plan
-- Keep previous known-good binaries on host.
-- If release fails:
-  - restore previous binaries
-  - restart service
-  - confirm logs return to normal
-- Document rollback cause and failing commit hash.
-
-## 7. Git Hygiene
-- Never commit runtime secrets or local config:
-  - `config/config.json` (ignored)
+## 8. Git-hygiene
+- Commit aldri runtime-hemmeligheter eller lokal konfig:
+  - `config/config.json` (git-ignorert)
   - `service-account-key.json`
   - `secrets.json`
-- Update `config/config.example.json` whenever config schema changes.
+- Oppdater `config/config.example.json` ved endringer i konfigskjema.
