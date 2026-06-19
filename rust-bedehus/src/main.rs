@@ -1,6 +1,7 @@
 mod arp;
 mod controller;
 mod db;
+mod logging;
 mod energy_report;
 mod font;
 mod temperature_report;

@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration as StdDuration, Instant, SystemTime};
 
 use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use reqwest::blocking::Client;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -20,6 +20,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
+
+use crate::logging;
+
+macro_rules! log_info {
+    ($logger:expr, $($arg:tt)*) => {
+        $logger.log(logging::Level::Info, &format!($($arg)*), file!(), line!())
+    };
+}
+
+macro_rules! log_warn {
+    ($logger:expr, $($arg:tt)*) => {
+        $logger.log(logging::Level::Warn, &format!($($arg)*), file!(), line!())
+    };
+}
 
 #[derive(Debug, Clone)]
 pub struct ControllerArgs {
@@ -38,6 +52,7 @@ pub struct Config {
     pub cache: CacheConfig,
     pub systemd: SystemdConfig,
     pub state_db: StateDbConfig,
+    pub syslog: SyslogConfig,
     pub time_window_hours: i64,
 }
 
@@ -108,6 +123,7 @@ impl Default for Config {
             cache: CacheConfig::default(),
             systemd: SystemdConfig::default(),
             state_db: StateDbConfig::default(),
+            syslog: SyslogConfig::default(),
             time_window_hours: 2,
         }
     }
@@ -184,10 +200,29 @@ impl Default for StateDbConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SyslogConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for SyslogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "10.253.4.1".to_string(),
+            port: 5515,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Runtime {
     cfg: Config,
     conn: Connection,
+    logger: logging::Logger,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,15 +270,6 @@ struct GoogleCalendarEventStart {
     #[serde(rename = "dateTime")]
     date_time: Option<String>,
     date: Option<String>,
-}
-
-fn log_line(level: &str, message: impl AsRef<str>) {
-    println!(
-        "{} bedehus-rs {:<5} {}",
-        Local::now().format("%Y-%m-%d %H:%M:%S"),
-        level,
-        message.as_ref()
-    );
 }
 
 fn resolve_path(base_dir: &Path, raw_path: &str) -> PathBuf {
@@ -348,7 +374,12 @@ fn load_runtime(base_dir: &Path, config_path: &Path) -> Result<Runtime> {
     let cfg = load_config(base_dir, config_path)?;
     let state_path = resolve_path(base_dir, &cfg.state_db.path);
     let conn = open_state_db(&state_path)?;
-    Ok(Runtime { cfg, conn })
+    let syslog_addr = cfg
+        .syslog
+        .enabled
+        .then(|| format!("{}:{}", cfg.syslog.host, cfg.syslog.port));
+    let logger = logging::Logger::new("bedehus-rs", syslog_addr.as_deref())?;
+    Ok(Runtime { cfg, conn, logger })
 }
 
 fn read_relay_state(conn: &Connection) -> Result<bool> {
@@ -397,6 +428,7 @@ fn save_heat_zone_state(conn: &Connection, zone: &str, state: bool) -> Result<()
 
 fn heat_zone_transition_target(
     conn: &Connection,
+    logger: &logging::Logger,
     zone: &str,
     heat_on: bool,
     heat_on_temp: f64,
@@ -406,16 +438,16 @@ fn heat_zone_transition_target(
     save_heat_zone_state(conn, zone, heat_on)?;
 
     if heat_on == last_state {
-        log_line(
-            "INFO",
-            format!("{zone} heat state unchanged ({heat_on}); skipping temperature update."),
+        log_info!(
+            logger,
+            "{zone} heat state unchanged ({heat_on}); skipping temperature update."
         );
         return Ok(None);
     }
 
-    log_line(
-        "INFO",
-        format!("{zone} heat state changed: {last_state} -> {heat_on}"),
+    log_info!(
+        logger,
+        "{zone} heat state changed: {last_state} -> {heat_on}"
     );
     Ok(Some(if heat_on { heat_on_temp } else { heat_off_temp }))
 }
@@ -558,6 +590,7 @@ fn fetch_google_calendar_events(
 
 fn get_calendar_events_with_fallback(
     conn: &Connection,
+    logger: &logging::Logger,
     cfg: &Config,
     calendar_id: &str,
     start_time: DateTime<Utc>,
@@ -569,9 +602,9 @@ fn get_calendar_events_with_fallback(
             Ok(events)
         }
         Err(err) => {
-            log_line(
-                "WARN",
-                format!("Google API unavailable for {calendar_id}: {err}. Trying cache."),
+            log_warn!(
+                logger,
+                "Google API unavailable for {calendar_id}: {err}. Trying cache."
             );
             if let Some(events) = load_calendar_cache(
                 conn,
@@ -579,20 +612,16 @@ fn get_calendar_events_with_fallback(
                 start_time,
                 cfg.cache.google_max_age_hours,
             )? {
-                log_line(
-                    "WARN",
-                    format!(
-                        "Using cached calendar data for {calendar_id} (max age {}h)",
-                        cfg.cache.google_max_age_hours
-                    ),
+                log_warn!(
+                    logger,
+                    "Using cached calendar data for {calendar_id} (max age {}h)",
+                    cfg.cache.google_max_age_hours
                 );
                 Ok(events)
             } else {
-                log_line(
-                    "WARN",
-                    format!(
-                        "No cached calendar data for {calendar_id}; assuming no upcoming events"
-                    ),
+                log_warn!(
+                    logger,
+                    "No cached calendar data for {calendar_id}; assuming no upcoming events"
                 );
                 Ok(Vec::new())
             }
@@ -600,26 +629,23 @@ fn get_calendar_events_with_fallback(
     }
 }
 
-fn process_events(zone: &str, events: &[CalendarEvent]) -> bool {
+fn process_events(logger: &logging::Logger, zone: &str, events: &[CalendarEvent]) -> bool {
     if events.is_empty() {
-        log_line(
-            "INFO",
-            format!("No upcoming events found for {zone}; heat not required"),
-        );
+        log_info!(logger, "No upcoming events found for {zone}; heat not required");
         return false;
     }
 
-    log_line(
-        "INFO",
-        format!(
-            "Found {} upcoming event(s) for {zone}; heat required",
-            events.len()
-        ),
+    log_info!(
+        logger,
+        "Found {} upcoming event(s) for {zone}; heat required",
+        events.len()
     );
     for event in events {
-        log_line(
-            "INFO",
-            format!("  Event start: {} Summary: {}", event.start, event.summary),
+        log_info!(
+            logger,
+            "  Event start: {} Summary: {}",
+            event.start,
+            event.summary
         );
     }
     true
@@ -695,9 +721,9 @@ fn sr201_heat_off(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-fn update_storsalen_glamox(cfg: &Config, heat_on: bool, dry_run: bool) {
+fn update_storsalen_glamox(logger: &logging::Logger, cfg: &Config, heat_on: bool, dry_run: bool) {
     if !cfg.glamox.enabled {
-        log_line("INFO", "Glamox disabled; skipping update.");
+        log_info!(logger, "Glamox disabled; skipping update.");
         return;
     }
 
@@ -706,25 +732,30 @@ fn update_storsalen_glamox(cfg: &Config, heat_on: bool, dry_run: bool) {
     } else {
         cfg.glamox.heat_off_temp
     };
-    log_line(
-        "INFO",
-        format!(
-            "Glamox Rust driver not implemented yet; would set {} to {:.1}C{}",
-            cfg.glamox.room_name,
-            target,
-            if dry_run { " (dry-run)" } else { "" }
-        ),
+    log_info!(
+        logger,
+        "Glamox Rust driver not implemented yet; would set {} to {:.1}C{}",
+        cfg.glamox.room_name,
+        target,
+        if dry_run { " (dry-run)" } else { "" }
     );
 }
 
-fn check_update_pray(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bool) -> Result<()> {
+fn check_update_pray(
+    conn: &Connection,
+    logger: &logging::Logger,
+    cfg: &Config,
+    heat_on: bool,
+    dry_run: bool,
+) -> Result<()> {
     if !cfg.mill.enabled {
-        log_line("INFO", "Mill disabled; skipping PRAY update.");
+        log_info!(logger, "Mill disabled; skipping PRAY update.");
         return Ok(());
     }
 
     let Some(target) = heat_zone_transition_target(
         conn,
+        logger,
         "pray",
         heat_on,
         cfg.mill.heat_on_temp,
@@ -734,31 +765,30 @@ fn check_update_pray(conn: &Connection, cfg: &Config, heat_on: bool, dry_run: bo
         return Ok(());
     };
 
-    log_line(
-        "INFO",
-        format!(
-            "Mill Rust driver not implemented yet; would set PRAY to {:.1}C{}",
-            target,
-            if dry_run { " (dry-run)" } else { "" }
-        ),
+    log_info!(
+        logger,
+        "Mill Rust driver not implemented yet; would set PRAY to {:.1}C{}",
+        target,
+        if dry_run { " (dry-run)" } else { "" }
     );
     Ok(())
 }
 
 fn check_relay_state(
     conn: &Connection,
+    logger: &logging::Logger,
     cfg: &Config,
     heat_on: bool,
     dry_run: bool,
 ) -> Result<Option<bool>> {
     let last_state = read_relay_state(conn)?;
-    log_line("INFO", format!("Last state: {last_state}"));
+    log_info!(logger, "Last state: {last_state}");
 
     if !cfg.sr201.enabled {
-        log_line("INFO", "SR201 disabled; skipping relay operations.");
+        log_info!(logger, "SR201 disabled; skipping relay operations.");
         save_relay_state(conn, heat_on)?;
         if heat_on != last_state {
-            log_line("INFO", "Change of state detected");
+            log_info!(logger, "Change of state detected");
             return Ok(Some(heat_on));
         }
         return Ok(None);
@@ -768,18 +798,16 @@ fn check_relay_state(
     save_relay_state(conn, heat_on)?;
 
     if heat_on != last_state {
-        log_line("INFO", "Change of state detected");
+        log_info!(logger, "Change of state detected");
     }
 
     if heat_on {
         if !relay_status {
-            log_line(
-                "INFO",
-                format!(
-                    "Turning heat on via SR201 relay {}{}.",
-                    cfg.sr201.relay,
-                    if dry_run { " (dry-run)" } else { "" }
-                ),
+            log_info!(
+                logger,
+                "Turning heat on via SR201 relay {}{}.",
+                cfg.sr201.relay,
+                if dry_run { " (dry-run)" } else { "" }
             );
             if !dry_run {
                 sr201_heat_on(cfg)?;
@@ -787,18 +815,16 @@ fn check_relay_state(
             return Ok(Some(true));
         }
 
-        log_line("INFO", "Relay is already on, not turning heat on.");
+        log_info!(logger, "Relay is already on, not turning heat on.");
         return Ok(None);
     }
 
     if relay_status {
-        log_line(
-            "INFO",
-            format!(
-                "Turning heat off via SR201 relay {}{}.",
-                cfg.sr201.relay,
-                if dry_run { " (dry-run)" } else { "" }
-            ),
+        log_info!(
+            logger,
+            "Turning heat off via SR201 relay {}{}.",
+            cfg.sr201.relay,
+            if dry_run { " (dry-run)" } else { "" }
         );
         if !dry_run {
             sr201_heat_off(cfg)?;
@@ -806,7 +832,7 @@ fn check_relay_state(
         return Ok(Some(false));
     }
 
-    log_line("INFO", "Relay is already off, not turning heat off.");
+    log_info!(logger, "Relay is already off, not turning heat off.");
     Ok(None)
 }
 
@@ -820,7 +846,12 @@ where
     Ok(out)
 }
 
-fn run_cycle(conn: &Connection, cfg: &Config, dry_run: bool) -> Result<()> {
+fn run_cycle(
+    conn: &Connection,
+    cfg: &Config,
+    logger: &logging::Logger,
+    dry_run: bool,
+) -> Result<()> {
     let mut timing = BTreeMap::new();
     let current_time = Utc::now();
     let end_time = current_time + Duration::hours(cfg.time_window_hours);
@@ -828,32 +859,40 @@ fn run_cycle(conn: &Connection, cfg: &Config, dry_run: bool) -> Result<()> {
     let events = timed(&mut timing, "calendar_storsalen", || {
         get_calendar_events_with_fallback(
             conn,
+            logger,
             cfg,
             &cfg.google.calendar_id,
             current_time,
             end_time,
         )
     })?;
-    let heat_on = process_events("storsalen", &events);
+    let heat_on = process_events(logger, "storsalen", &events);
 
     let glamox_update = timed(&mut timing, "sr201_logic", || {
-        check_relay_state(conn, cfg, heat_on, dry_run)
+        check_relay_state(conn, logger, cfg, heat_on, dry_run)
     })?;
 
     timed(&mut timing, "glamox_logic", || {
         if let Some(heat_on) = glamox_update {
-            update_storsalen_glamox(cfg, heat_on, dry_run);
+            update_storsalen_glamox(logger, cfg, heat_on, dry_run);
         }
         Ok(())
     })?;
 
     let pray_events = timed(&mut timing, "calendar_pray", || {
-        get_calendar_events_with_fallback(conn, cfg, &cfg.google.pray_id, current_time, end_time)
+        get_calendar_events_with_fallback(
+            conn,
+            logger,
+            cfg,
+            &cfg.google.pray_id,
+            current_time,
+            end_time,
+        )
     })?;
-    let pray_heat_on = process_events("pray", &pray_events);
+    let pray_heat_on = process_events(logger, "pray", &pray_events);
 
     timed(&mut timing, "mill_logic", || {
-        check_update_pray(conn, cfg, pray_heat_on, dry_run)
+        check_update_pray(conn, logger, cfg, pray_heat_on, dry_run)
     })?;
 
     let pretty = timing
@@ -861,7 +900,7 @@ fn run_cycle(conn: &Connection, cfg: &Config, dry_run: bool) -> Result<()> {
         .map(|(key, value)| format!("{key}={value:.1}ms"))
         .collect::<Vec<_>>()
         .join(", ");
-    log_line("INFO", format!("Timing summary: {pretty}"));
+    log_info!(logger, "Timing summary: {pretty}");
     Ok(())
 }
 
@@ -926,15 +965,13 @@ fn config_diff_summary(old_cfg: &Config, new_cfg: &Config, max_items: usize) -> 
 pub fn controller_run_once(args: &ControllerArgs) -> Result<()> {
     let base_dir = env::current_dir()?;
     let runtime = load_runtime(&base_dir, &args.config)?;
-    log_line(
-        "INFO",
-        format!(
-            "controller-run-once starting (config={}, dry_run={})",
-            args.config.display(),
-            args.dry_run
-        ),
+    log_info!(
+        runtime.logger,
+        "controller-run-once starting (config={}, dry_run={})",
+        args.config.display(),
+        args.dry_run
     );
-    run_cycle(&runtime.conn, &runtime.cfg, args.dry_run)
+    run_cycle(&runtime.conn, &runtime.cfg, &runtime.logger, args.dry_run)
 }
 
 #[cfg(test)]
@@ -1085,12 +1122,11 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
         .unwrap_or(runtime.cfg.systemd.interval_seconds)
         .max(1);
 
-    log_line(
-        "INFO",
-        format!(
-            "controller-daemon started (interval={}s, dry_run={})",
-            interval_seconds, args.dry_run
-        ),
+    log_info!(
+        runtime.logger,
+        "controller-daemon started (interval={}s, dry_run={})",
+        interval_seconds,
+        args.dry_run
     );
 
     while !stop_event.load(Ordering::Relaxed) {
@@ -1103,7 +1139,7 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
             } else {
                 "SIGHUP"
             };
-            log_line("INFO", format!("Reloading runtime config ({reason})..."));
+            log_info!(runtime.logger, "Reloading runtime config ({reason})...");
             match load_runtime(&base_dir, &args.config) {
                 Ok(new_runtime) => {
                     let diff = config_diff_summary(&runtime.cfg, &new_runtime.cfg, 20);
@@ -1112,20 +1148,20 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
                         interval_seconds = runtime.cfg.systemd.interval_seconds.max(1);
                     }
                     config_mtime = file_mtime(&config_path);
-                    log_line("INFO", format!("Config changes: {diff}"));
-                    log_line("INFO", "Runtime config reload completed");
+                    log_info!(runtime.logger, "Config changes: {diff}");
+                    log_info!(runtime.logger, "Runtime config reload completed");
                 }
                 Err(err) => {
-                    log_line(
-                        "WARN",
-                        format!("Config reload failed; keeping current runtime: {err:#}"),
+                    log_warn!(
+                        runtime.logger,
+                        "Config reload failed; keeping current runtime: {err:#}"
                     );
                 }
             }
         }
 
-        if let Err(err) = run_cycle(&runtime.conn, &runtime.cfg, args.dry_run) {
-            log_line("WARN", format!("Error in cycle: {err:#}"));
+        if let Err(err) = run_cycle(&runtime.conn, &runtime.cfg, &runtime.logger, args.dry_run) {
+            log_warn!(runtime.logger, "Error in cycle: {err:#}");
         }
 
         let deadline = Instant::now() + StdDuration::from_secs(interval_seconds);
@@ -1137,6 +1173,6 @@ pub fn controller_daemon(args: &ControllerArgs) -> Result<()> {
         }
     }
 
-    log_line("INFO", "controller-daemon stopped");
+    log_info!(runtime.logger, "controller-daemon stopped");
     Ok(())
 }
