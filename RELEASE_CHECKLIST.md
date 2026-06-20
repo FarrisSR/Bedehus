@@ -27,10 +27,14 @@ på GitHub Actions før du går videre:
   git push origin v1.2.3
   ```
 - Verifiser at GitHub Release ble opprettet med alle forventede assets:
-  - `bedehus-linux-armv6`
-  - `bedehus-on-linux-armv6`
-  - `bedehus-off-linux-armv6`
-  - `bedehus-rs-linux-armv6`
+  - `bedehus-linux-armv6` + `.sha256`
+  - `bedehus-on-linux-armv6` + `.sha256`
+  - `bedehus-off-linux-armv6` + `.sha256`
+  - `bedehus-rs-linux-armv6` + `.sha256`
+  - **Viktig**: vent til *begge* pipelines (`build-release.yml` og `build-release-rust.yml`)
+    er fullført før auto-updateren tillates å kjøre – de oppretter/oppdaterer samme
+    release-tag uavhengig av hverandre, og en for tidlig poll kan plukke opp en
+    delvis ferdig release.
 - Record commit: `git rev-parse --short HEAD`
 
 ## 4. Deploy til Pi (automatisk via auto-updater)
@@ -58,6 +62,18 @@ bedehus-updater INFO  Oppdatering fullført: v1.2.3 (4 installert)
   - `cache.google_max_age_hours`
 
 ## 6. Post-deploy validering
+- Auto-updateren verifiserer hver binary mot `<asset>.sha256` fra releasen før
+  den installeres, og avviser nedlastingen ved mismatch (gammel binary beholdes).
+  Sjekk `journalctl -u bedehus-updater -n 50` for `Checksum-mismatch`-feil ved feilsøking.
+- Manuell verifisering av en installert binary mot releasen:
+  ```bash
+  TOKEN=$(sudo cat /etc/bedehus/github_token 2>/dev/null)
+  curl -sf ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
+    "https://api.github.com/repos/FarrisSR/Bedehus/releases/tags/<tag>" \
+    | python3 -c "import sys,json; [print(a['name'],a['id']) for a in json.load(sys.stdin)['assets']]"
+  # finn sha256-asset-id og last den ned, sammenlign mot:
+  sha256sum /home/runo/bedehus/<binary>
+  ```
 - Kjør én manuell dry-run på Pi-en:
   ```bash
   /home/pi/bedehus/bedehus -config config/config.json

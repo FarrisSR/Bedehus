@@ -53,6 +53,13 @@ jobs:
             echo "OK"
           done
 
+      - name: Checksums
+        run: |
+          cd dist
+          for binary in bedehus-linux-armv6 bedehus-on-linux-armv6 bedehus-off-linux-armv6; do
+            sha256sum "$binary" > "$binary.sha256"
+          done
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -61,6 +68,7 @@ jobs:
             go-bedehus/dist/bedehus-linux-armv6
             go-bedehus/dist/bedehus-on-linux-armv6
             go-bedehus/dist/bedehus-off-linux-armv6
+            go-bedehus/dist/*.sha256
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -71,6 +79,7 @@ jobs:
             go-bedehus/dist/bedehus-linux-armv6
             go-bedehus/dist/bedehus-on-linux-armv6
             go-bedehus/dist/bedehus-off-linux-armv6
+            go-bedehus/dist/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           

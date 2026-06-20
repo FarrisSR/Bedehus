@@ -78,17 +78,26 @@ jobs:
       - name: Smoke test binary
         run: qemu-arm-static dist/bedehus-rs-linux-armv6 --help
 
+      - name: Checksum
+        run: |
+          cd dist
+          sha256sum bedehus-rs-linux-armv6 > bedehus-rs-linux-armv6.sha256
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bedehus-rs-linux-armv6
-          path: rust-bedehus/dist/bedehus-rs-linux-armv6
+          path: |
+            rust-bedehus/dist/bedehus-rs-linux-armv6
+            rust-bedehus/dist/bedehus-rs-linux-armv6.sha256
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}
-          files: rust-bedehus/dist/bedehus-rs-linux-armv6
+          files: |
+            rust-bedehus/dist/bedehus-rs-linux-armv6
+            rust-bedehus/dist/bedehus-rs-linux-armv6.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

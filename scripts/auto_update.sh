@@ -85,6 +85,37 @@ for a in json.load(sys.stdin).get('assets', []):
     fi
 }
 
+# Verifiser nedlastet binary mot sha256-asset (om den finnes i releasen).
+# Returnerer 1 dersom checksum-asset finnes men ikke stemmer, eller nedlasting feiler.
+verify_checksum() {
+    local asset_name="$1" file="$2"
+    local checksum_asset_id
+    checksum_asset_id=$(asset_id_for "${asset_name}.sha256")
+    if [[ -z "$checksum_asset_id" ]]; then
+        log "WARN" "Ingen .sha256 for $asset_name i denne releasen – hopper over verifisering"
+        return 0
+    fi
+
+    local checksum_file
+    checksum_file=$(mktemp /tmp/bedehus-checksum.XXXXXX)
+    if ! download_asset "$checksum_asset_id" "$checksum_file"; then
+        log "ERROR" "Klarte ikke laste ned sha256 for $asset_name"
+        rm -f "$checksum_file"
+        return 1
+    fi
+
+    local expected actual
+    expected=$(awk '{print $1}' "$checksum_file")
+    actual=$(sha256sum "$file" | awk '{print $1}')
+    rm -f "$checksum_file"
+
+    if [[ "$expected" != "$actual" ]]; then
+        log "ERROR" "Checksum-mismatch for $asset_name: forventet $expected, fikk $actual"
+        return 1
+    fi
+    return 0
+}
+
 # --- Sjekk siste release ---
 log "INFO" "Sjekker GitHub Releases for $REPO..."
 release_json=$(api_curl "https://api.github.com/repos/$REPO/releases/latest") || {
@@ -123,7 +154,7 @@ for mapping in "${ASSETS[@]}"; do
     tmpfile=$(mktemp /tmp/bedehus-update.XXXXXX)
 
     log "INFO" "Laster ned $asset_name..."
-    if download_asset "$asset_id" "$tmpfile"; then
+    if download_asset "$asset_id" "$tmpfile" && verify_checksum "$asset_name" "$tmpfile"; then
         chmod +x "$tmpfile"
         # Sikkerhetskopi av eksisterende binary
         [[ -f "$install_path" ]] && cp "$install_path" "${install_path}.prev"
@@ -132,7 +163,7 @@ for mapping in "${ASSETS[@]}"; do
         installed=$((installed + 1))
     else
         rm -f "$tmpfile"
-        log "ERROR" "Nedlasting av $asset_name feilet"
+        log "ERROR" "Nedlasting/verifisering av $asset_name feilet – behold eksisterende binary"
         failed=$((failed + 1))
     fi
 done
