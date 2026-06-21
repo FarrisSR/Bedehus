@@ -38,7 +38,11 @@ på GitHub Actions før du går videre:
 - Record commit: `git rev-parse --short HEAD`
 
 ## 4. Deploy til Pi (automatisk via auto-updater)
-Pi-en poller GitHub Releases hvert 10. minutt og installerer automatisk.
+Pi-en poller GitHub Releases én gang i timen mellom 07 og 22 (se
+`config/bedehus-updater.timer.example`), og installerer automatisk. Hver poll
+bruker en betinget HTTP-forespørsel (ETag/`If-None-Match`); når det ikke er en
+ny release svarer GitHub med 304 og ingen data lastes ned. Binærer som ikke har
+endret seg siden forrige release (sammenlignet via sha256) lastes heller ikke ned.
 Vent til timeren trigger, eller kjør manuelt:
 ```bash
 sudo systemctl start bedehus-updater.service

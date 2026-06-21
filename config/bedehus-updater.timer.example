@@ -2,12 +2,12 @@
 Description=Bedehus auto-update timer
 
 [Timer]
-# Vent 2 minutter etter boot før første sjekk
-OnBootSec=2min
-# Sjekk deretter hvert 10. minutt
-OnUnitActiveSec=10min
-# Tilfeldig forsinkelse på opptil 60 sek (nyttig ved flere Pi-er)
-RandomizedDelaySec=60
+# Sjekk én gang i timen, kun mellom 07 og 22 – reduserer trafikk mot GitHub
+# til et minimum. Manuell oppdatering utenom dette vinduet:
+#   sudo systemctl start bedehus-updater.service
+OnCalendar=*-*-* 07..22:00:00
+# Tilfeldig forsinkelse på opptil 5 min (nyttig ved flere Pi-er som deler vindu)
+RandomizedDelaySec=5min
 # Kjør umiddelbart neste gang dersom Pi var av under planlagt kjøring
 Persistent=true
 
