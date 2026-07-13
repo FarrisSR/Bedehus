@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enkel wrapper for cron: logger temperaturer fra Glamox og Mill hver gang den kjøres.
-# Forutsetter at secrets.json inneholder Mill/Glamox creds og at python3/requests er installert.
+# Forutsetter at secrets.json inneholder Mill/Glamox creds og at Python-avhengighetene fra requirements.txt er installert.
 
 set -euo pipefail
 

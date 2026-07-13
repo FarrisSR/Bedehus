@@ -19,15 +19,13 @@ The GRove is out!
 https://www.dexterindustries.com/GrovePi/get-started-with-the-grovepi/
 
 
-* Have a look into requirements.txt. 
+* `requirements.in` contains the top-level Python dependencies. `requirements.txt` contains pinned versions for install and CI.
 
-During development (whenever new requirements are added):
-
-    pip freeze > requirements.txt 
+When updating Python dependencies, edit the top-level list in `requirements.in` and refresh `requirements.txt` accordingly.
 
 When arriving to a new runtime location, install dependencies like this:
 
-    pip install -r requirements.txt 
+    pip install -r requirements.txt
 
 --
 FarrisSR & Vaskeball
