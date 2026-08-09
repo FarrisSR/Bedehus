@@ -20,7 +20,7 @@ jobs:
         working-directory: rust-bedehus
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -47,7 +47,7 @@ jobs:
         working-directory: rust-bedehus
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -73,7 +73,9 @@ jobs:
           cp target/arm-unknown-linux-musleabihf/release/bedehus-rs dist/bedehus-rs-linux-armv6
 
       - name: Install QEMU
-        run: sudo apt-get install -y qemu-user-static
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
 
       - name: Smoke test binary
         run: qemu-arm-static dist/bedehus-rs-linux-armv6 --help
@@ -84,7 +86,7 @@ jobs:
           sha256sum bedehus-rs-linux-armv6 > bedehus-rs-linux-armv6.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bedehus-rs-linux-armv6
           path: |
@@ -92,7 +94,7 @@ jobs:
             rust-bedehus/dist/bedehus-rs-linux-armv6.sha256
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}
