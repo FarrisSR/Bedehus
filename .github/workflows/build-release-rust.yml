@@ -38,7 +38,7 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
-  build:
+  build-armv6:
     name: Build armv6
     runs-on: ubuntu-latest
     needs: test
@@ -93,13 +93,77 @@ jobs:
             rust-bedehus/dist/bedehus-rs-linux-armv6
             rust-bedehus/dist/bedehus-rs-linux-armv6.sha256
 
+  build-amd64:
+    name: Build amd64
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: rust-bedehus
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-unknown-linux-gnu
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-bedehus
+
+      - name: Build amd64 binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/bedehus-rs dist/bedehus-rs-linux-amd64
+
+      - name: Smoke test binary
+        run: dist/bedehus-rs-linux-amd64 --help
+
+      - name: Checksum
+        run: |
+          cd dist
+          sha256sum bedehus-rs-linux-amd64 > bedehus-rs-linux-amd64.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: bedehus-rs-linux-amd64
+          path: |
+            rust-bedehus/dist/bedehus-rs-linux-amd64
+            rust-bedehus/dist/bedehus-rs-linux-amd64.sha256
+
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: [build-armv6, build-amd64]
+    steps:
+      - name: Download armv6 artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: bedehus-rs-linux-armv6
+          path: dist
+
+      - name: Download amd64 artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: bedehus-rs-linux-amd64
+          path: dist
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}
           files: |
-            rust-bedehus/dist/bedehus-rs-linux-armv6
-            rust-bedehus/dist/bedehus-rs-linux-armv6.sha256
+            dist/bedehus-rs-linux-armv6
+            dist/bedehus-rs-linux-armv6.sha256
+            dist/bedehus-rs-linux-amd64
+            dist/bedehus-rs-linux-amd64.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
