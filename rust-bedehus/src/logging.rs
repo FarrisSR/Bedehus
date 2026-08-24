@@ -74,17 +74,17 @@ impl Logger {
         println!("{ts} {:<12} {:<8} {message}", self.name, level.as_str());
 
         // Syslog: same format as Go SyslogFormatter
-        if let Ok(guard) = self.syslog.lock() {
-            if let Some(ref socket) = *guard {
-                let file_short = file.rsplit('/').next().unwrap_or(file);
-                let msg = format!(
-                    "{ts} | {level} | {hostname} | {name}:{file_short}:{line} - {message}\n",
-                    level = level.as_str(),
-                    hostname = self.hostname,
-                    name = self.name,
-                );
-                let _ = socket.send(msg.as_bytes());
-            }
+        if let Ok(guard) = self.syslog.lock()
+            && let Some(ref socket) = *guard
+        {
+            let file_short = file.rsplit('/').next().unwrap_or(file);
+            let msg = format!(
+                "{ts} | {level} | {hostname} | {name}:{file_short}:{line} - {message}\n",
+                level = level.as_str(),
+                hostname = self.hostname,
+                name = self.name,
+            );
+            let _ = socket.send(msg.as_bytes());
         }
     }
 }

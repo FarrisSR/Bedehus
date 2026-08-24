@@ -384,7 +384,7 @@ fn plot_temperature_history(
             .collect::<Vec<_>>();
         for segment in split_xy_segments(&target_points, max_points) {
             chart
-                .draw_series(LineSeries::new(segment.into_iter(), color.mix(0.5).stroke_width(1)))?
+                .draw_series(LineSeries::new(segment, color.mix(0.5).stroke_width(1)))?
                 .label(format!("{source}/{room} target"))
                 .legend(move |(x, y)| {
                     PathElement::new(vec![(x, y), (x + 20, y)], color.mix(0.5))
@@ -401,7 +401,7 @@ fn plot_temperature_history(
         );
         chart
             .draw_secondary_series(LineSeries::new(
-                online_series.into_iter(),
+                online_series,
                 GREEN.stroke_width(2),
             ))?
             .label("Ovner online")
@@ -415,7 +415,7 @@ fn plot_temperature_history(
         );
         chart
             .draw_secondary_series(LineSeries::new(
-                expected_series.into_iter(),
+                expected_series,
                 BLACK.mix(0.4).stroke_width(1),
             ))?
             .label("Forventede ovner")

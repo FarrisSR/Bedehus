@@ -295,7 +295,7 @@ fn plot_energy(readings: &[EnergyReading], output: &Path, temp_series: &[TempSer
             for segment in split_xy_segments(&target_points) {
                 chart
                     .draw_secondary_series(LineSeries::new(
-                        segment.into_iter(),
+                        segment,
                         color.mix(0.5).stroke_width(1),
                     ))?
                     .label(format!("{} target", series.label))
@@ -321,10 +321,10 @@ fn calculate_intervals(readings: &[EnergyReading]) -> Vec<(DateTime<Utc>, DateTi
     let width = average_step(readings);
     for reading in readings {
         let mut delta = reading.energy_wh_delta.unwrap_or(0.0);
-        if reading.energy_wh_delta.is_none() {
-            if let (Some(total), Some(prev)) = (reading.energy_wh_total, prev_total) {
-                delta = (total - prev).max(0.0);
-            }
+        if reading.energy_wh_delta.is_none()
+            && let (Some(total), Some(prev)) = (reading.energy_wh_total, prev_total)
+        {
+            delta = (total - prev).max(0.0);
         }
         if let Some(total) = reading.energy_wh_total {
             prev_total = Some(total);
